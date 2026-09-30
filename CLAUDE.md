@@ -25,7 +25,7 @@ Artem is a video editor, not a programmer. He talks Russian.
 - Core + adapters: **Python 3.11**, `pydantic` (schemas), `rapidfuzz`, `numpy`, `pytest`.
 - Media: `ffmpeg` / `ffprobe` (PATH or `%USERPROFILE%\.stacher`).
 - ASR: chosen by the Stage 0 benchmark (candidates: faster-whisper large-v3-turbo, GigaAM, Parakeet). GPU: RTX 4060 8 GB — one model in memory at a time.
-- LLM ("thinking" stages only): **Gemini API**; fallback = task file for a Cowork session.
+- LLM ("thinking" stages only): **Gemini API**; fallback = task file for a Claude session.
 - Window: **Electron** (reused from the auto-titles app). Premiere bridge: **CEP** extension (reused from auto-titles).
 - Google: Docs/Drive API (service account from `premiere-assembler-python` as a starting point; verify access in Stage 0).
 
@@ -66,8 +66,10 @@ markflow/shared/        pure utils: timecode/ticks, text normalisation, fuzzy ma
 3. **No re-encoding of sources.** Downloads keep source quality (max 2K); no subclips, no transcodes.
 4. **Secrets never in git**: `gemini_api.txt`, Google credentials, `.env*` (only `.env.example` is committed).
 5. **No big media in git.** Fixtures ≤ 5 MB each (16 kHz mono WAV excerpts, mini projects saved by Premiere).
-6. **Cloud cannot touch the user's PC.** Anything needing GPU, Google Drive for Desktop, yt-dlp to YouTube,
-   the real episode or Premiere goes into an acceptance/benchmark task for a Cowork session.
+6. **Cloud cannot touch the user's PC.** Anything needing GPU, Windows Python, Google Drive for Desktop (G:),
+   yt-dlp to YouTube, the real episode or Premiere goes into a task for **local Claude Code on the PC**
+   (runs natively in Windows/PowerShell, repo clone at `C:\Users\Artem\Videos\MarkFlow\repo`).
+   Cowork is NOT used for this: its shell is a Linux VM without GPU, Windows Python or the G: drive.
 
 ## Definition of done — three gates
 
@@ -78,7 +80,7 @@ without the reports of gates 2 and 3 committed under `acceptance/reports/<branch
 - **Gate 2 — PC, no Premiere:** `python -m acceptance.gate2 <episode>` runs the full chain on the real episode;
   the validator parses the output `.prproj` (unique ObjectIDs/UIDs, no broken refs, no overlaps, clip count and
   durations match `edit_plan.json`, original clips untouched) and computes the metrics from PLAN.md. Output: `OK` or a list.
-- **Gate 3 — PC, Premiere:** the bridge opens the project in Premiere, reads the timeline (clips per track,
+- **Gate 3 — PC, Premiere:** the CEP bridge (`premiere_ext/`, reused from the auto-titles app; built in Stage 3) opens the project in Premiere, reads the timeline (clips per track,
   total duration), compares with the plan, exports 5 check frames. **An empty or short timeline = FAIL.**
 
 ## Git workflow
