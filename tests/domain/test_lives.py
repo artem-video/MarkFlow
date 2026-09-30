@@ -20,5 +20,5 @@ def test_range_and_single_moment_segments_are_clipped_to_the_file():
     assert segs == [(75.0, 80.0), (26.0, 26.0 + LIVE_DEFAULT_S)]  # the third starts after the end of the file
 
 
-def test_no_timecodes_gives_no_segments():
-    assert live_segments(_block(), total=600.0) == []
+def test_no_timecodes_means_the_start_of_the_file():
+    assert live_segments(_block(), total=600.0) == [(0.0, LIVE_DEFAULT_S)]

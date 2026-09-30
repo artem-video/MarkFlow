@@ -118,7 +118,9 @@ def plan_problems(project: Project, plan: EditPlan, sequence_name: str, base: Pr
         problems.append(f"missing on the timeline: {key[0]} {key[1] + 1} at {key[2]} ({n}x) {key[6]}")
     for key, n in (actual - expected).items():
         problems.append(f"not in the plan: {key[0]} {key[1] + 1} at {key[2]} ({n}x) {key[6]}")
-    planned_markers = len(plan.markers) + len(plan.text_layers) + base_markers
+    covered = {(m.script_ref, m.start) for m in plan.markers if m.kind.value == "live_missing"}  # writer skips twins
+    planned_markers = len(plan.markers) + sum(1 for t in plan.text_layers
+                                              if (t.script_ref, t.start) not in covered) + base_markers
     if len(info.markers) != planned_markers:
         problems.append(f"{sequence_name}: {len(info.markers)} markers, plan has {planned_markers}")
     if plan.clips and info.duration < max(c.end for c in plan.clips):

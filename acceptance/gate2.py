@@ -21,7 +21,7 @@ from markflow.application.reports import draft_md, source_map_md
 from markflow.application.lives import LiveRefiner, windows_of
 from markflow.application.transcribe import TranscribeEpisode
 from markflow.domain.edit_plan import Sequence, SourceKind, to_json
-from markflow.domain.script_model import RawDoc, parse_script, select_part
+from markflow.domain.script_model import BlockKind, RawDoc, parse_script, select_part
 from markflow.domain.triage_rules import SourceMeta, with_recording_time
 from markflow.infra.cache import JsonFileStore, fast_fingerprint
 from markflow.infra.google.docs_reader import GoogleDocsReader, load_connector_export
@@ -87,6 +87,22 @@ def check_frames(result: DraftResult, n: int = 5) -> list[float]:
     return [round(ticks_to_seconds(c.start + c.duration // 2), 2) for c in picks]
 
 
+def live_problems(script, lives, plan) -> list[str]:
+    """Every live of the script is either on the lives track or has a red «live_missing» marker; none is lost."""
+    placed = {c.script_ref for c in plan.clips if c.reason.value == "live"}
+    flagged = {m.script_ref for m in plan.markers if m.kind.value == "live_missing"}
+    out = []
+    for blk in script.blocks:
+        if blk.kind not in (BlockKind.LIVE, BlockKind.QUOTE, BlockKind.BUTT) or blk.spoken:
+            continue
+        has_file = bool(blk.links) and live_key(blk.links[0]) in lives
+        if has_file and blk.id not in placed:
+            out.append(f"лайв {blk.number or blk.id} скачан, но не стоит на таймлайне")
+        elif not has_file and blk.id not in flagged:
+            out.append(f"лайв {blk.number or blk.id} не скачан и без красного маркера")
+    return out
+
+
 def run(ep_path: Path) -> int:
     ep = Episode.load(ep_path)
     profile = load_profile(ep.profile)
@@ -133,6 +149,8 @@ def run(ep_path: Path) -> int:
     result = build_draft(script, inputs, profile, sequence, ep.name, lives, live_windows)
     log(f"plan: {len(result.plan.clips)} clips, {len(result.plan.markers)} markers, "
         f"{format_clock(result.metrics.duration_s)}")
+
+    problems += live_problems(script, lives, result.plan)
 
     ep.out_folder.mkdir(parents=True, exist_ok=True)
     out = new_output_path(ep.base_project, folder=ep.out_folder)

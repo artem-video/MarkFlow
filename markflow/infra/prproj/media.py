@@ -136,7 +136,12 @@ class MediaImporter:
         name = ntpath.basename(spec.path)
         duration = round(Fraction(spec.duration_s) * TICKS_PER_SECOND)
         rate = parse_fps(spec.fps) if spec.has_video else None
-        frame = ticks_per_frame(rate) if rate else None
+        try:
+            frame = ticks_per_frame(rate) if rate else None
+        except ValueError:  # variable-rate file (some TikToks, 29.583 fps): snap to the nearest standard rate
+            standard = [Fraction(n, d) for n, d in ((24000, 1001), (24, 1), (25, 1), (30000, 1001), (30, 1),
+                                                    (50, 1), (60000, 1001), (60, 1))]
+            frame = ticks_per_frame(min(standard, key=lambda s: abs(s - Fraction(rate))))
         if frame:
             duration = (duration // frame) * frame
         channels = max(0, spec.audio_channels)

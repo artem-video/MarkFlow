@@ -42,12 +42,14 @@ class LiveFile:
 
 
 class LiveDownloader:
-    def __init__(self, cache: Path, yt_dlp: str = "yt-dlp", max_height: int = 1440, log=print):
+    def __init__(self, cache: Path, yt_dlp: str = "yt-dlp", max_height: int = 1440, log=print,
+                 extra_args: tuple[str, ...] = ()):
         self.cache = Path(cache)
         self.cache.mkdir(parents=True, exist_ok=True)
         self.yt_dlp = yt_dlp
         self.max_height = max_height
         self.log = log
+        self.extra_args = list(extra_args)  # e.g. --cookies-from-browser brave: read live from the browser, never saved
         self.index_path = self.cache / "index.json"
         self._lock = threading.Lock()
         self.index: dict[str, dict] = json.loads(self.index_path.read_text(encoding="utf-8")) \
@@ -68,7 +70,7 @@ class LiveDownloader:
         known = self.index.get(key)
         if known and known.get("path") and Path(known["path"]).exists():
             return LiveFile(**known)
-        cmd = [self.yt_dlp, "--no-playlist", "--no-warnings", "--windows-filenames", "--no-part",
+        cmd = [self.yt_dlp, *self.extra_args, "--no-playlist", "--no-warnings", "--windows-filenames", "--no-part",
                "-f", FORMAT_TMPL.replace("H", str(self.max_height)), "--merge-output-format", "mp4",
                "-P", str(self.cache), "-o", NAME_TMPL + ".%(ext)s",
                "--print-to-file", "after_move:%(filepath)s\t%(id)s\t%(title)s\t%(channel,uploader)s\t%(duration)s\t"
@@ -117,9 +119,13 @@ def main() -> None:
     ap.add_argument("--yt-dlp", default="yt-dlp")
     ap.add_argument("--height", type=int, default=1440)
     ap.add_argument("--workers", type=int, default=3)
+    ap.add_argument("--cookies-from-browser", default=None, help="brave / chrome / firefox: for 18+ and Instagram")
+    ap.add_argument("--no-check-certificates", action="store_true")
     a = ap.parse_args()
+    extra = (("--cookies-from-browser", a.cookies_from_browser) if a.cookies_from_browser else ()) + (
+        ("--no-check-certificates",) if a.no_check_certificates else ())
     urls = [ln.strip() for ln in Path(a.urls_file).read_text(encoding="utf-8").splitlines() if ln.strip()]
-    LiveDownloader(Path(a.cache), a.yt_dlp, a.height).download_all(urls, a.workers)
+    LiveDownloader(Path(a.cache), a.yt_dlp, a.height, extra_args=extra).download_all(urls, a.workers)
 
 
 if __name__ == "__main__":

@@ -21,7 +21,7 @@ from pathlib import Path
 
 from lxml import etree
 
-from markflow.domain.edit_plan import Clip, EditPlan, LabelColor, Marker, TextLayer
+from markflow.domain.edit_plan import Clip, EditPlan, LabelColor, Marker, MarkerKind, TextLayer
 from markflow.infra.prproj.project import (
     AUDIO_MEDIA_TYPE, VIDEO_MEDIA_TYPE, Project, ProjectError, el, norm_path, sub,
 )
@@ -39,6 +39,7 @@ MUTE_PARAM_CLASS = "32657501-3aa4-445f-a49b-d09ecb9fa1ae"
 LEVEL_PARAM_CLASS = "a714635e-a628-4b27-9d59-77eba47dbc1a"
 SECONDARY_CLASS = "f9d004b5-cb04-4e2f-af6f-64fadc2c4be9"
 LINK_CLASS = "149d4ea5-a7d4-4b34-9bb7-16d783904bf2"
+MARKER_RED = 0xFF362CD2  # Premiere red marker (ABGR), read from a project Premiere saved
 MARKER_CLASS = "a45508e0-3ff7-4d04-90a7-2e0dfff4c910"
 MARKERS_CLASS = "bee50706-b524-416c-9f03-b596ce5f6866"
 ZERO_DB = "0.17782799899578094"  # Premiere's clip volume value for 0 dB
@@ -209,6 +210,7 @@ class _Writer:
     def _fit_scale(self, clip: Clip) -> float | None:
         """Motion scale (%) that fits the clip's picture into the sequence frame (Premiere's «Scale to Frame Size»),
         None when the picture already has the frame's size or the size is unknown."""
+        return None  # TEMP: the scaled motion chain makes Premiere hang (draft_9); off until motion_chain.xml is fixed
         src = self.sources.get(clip.source_id)
         if src is None or not src.width or not src.height or (src.width, src.height) == (self.width, self.height):
             return None
@@ -359,7 +361,7 @@ class _Writer:
         sub(owner, "Markers", ObjectRef=container.get("ObjectID"))
         return container
 
-    def _marker(self, start: int, name: str, comment: str, duration: int = 0) -> None:
+    def _marker(self, start: int, name: str, comment: str, duration: int = 0, color: int | None = None) -> None:
         container = self.p.ref(self.seq.find("MarkerOwner/Markers"))
         if container is None:
             container = self._marker_list()
@@ -368,6 +370,9 @@ class _Writer:
                                  "mStartTime": {"ticks": start}, "mType": "Comment"}}
         if duration > 0:  # a ranged marker; key seen in a Premiere 2026 save of a marker with a duration
             payload["DVAMarker"]["mDuration"] = {"ticks": duration}
+        if color is not None:  # marker colour as Premiere 2026 keeps it: a keyword cue point, ABGR integer
+            payload["DVAMarker"]["mCuePointList"] = [{"mKey": f"keywordExtDVAv1_{self.p.new_guid()}",
+                                                      "mValue": json.dumps({"color": color}, separators=(",", ":"))}]
         marker = el("Marker", ObjectID=self.p.new_id(), ClassID=MARKER_CLASS, Version="3")
         sub(marker, "DVAMarker", json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
         self.p.add_object(marker)
@@ -402,8 +407,12 @@ class _Writer:
             if len(linked) > 1:
                 self._link(linked)
         for m in sorted(self.plan.markers, key=lambda m: m.start):
-            self._marker(m.start, _marker_name(m), _marker_comment(m), m.duration)
+            self._marker(m.start, _marker_name(m), _marker_comment(m), m.duration,
+                         MARKER_RED if m.kind is MarkerKind.LIVE_MISSING else None)
+        covered = {(m.script_ref, m.start) for m in self.plan.markers if m.kind is MarkerKind.LIVE_MISSING}
         for t in self.plan.text_layers:
+            if (t.script_ref, t.start) in covered:  # the red live-missing marker already says it
+                continue
             self._marker(t.start, t.text.split("\n")[0][:120], _layer_comment(t))
 
 

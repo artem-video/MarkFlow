@@ -51,3 +51,7 @@ desktop.ini
 .vscode/
 .idea/
 *.json.key
+
+# never commit browser cookies / exports
+cookies*.txt
+*.cookies

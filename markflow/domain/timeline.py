@@ -99,7 +99,10 @@ class _Builder:
         """A downloaded live in the main flow: the window start..end of the file on the lives tracks (V3, A3-A4)."""
         v, a = self.profile.tracks.video.lives, self.profile.tracks.audio.lives
         channels = min(max(1, meta.audio_channels), len(a))
-        src_frame = ticks_per_frame(parse_fps(meta.fps)) if meta.fps else self.frame
+        try:
+            src_frame = ticks_per_frame(parse_fps(meta.fps)) if meta.fps else self.frame
+        except ValueError:  # odd variable-rate files (some TikToks, 29.583 fps): use the sequence's frame grid
+            src_frame = self.frame
         src_in = round(seconds_to_ticks(max(0.0, start_s)) / src_frame) * src_frame  # on the file's own frame grid
         duration = self.frames(end_s - start_s)
         total = seconds_to_ticks(meta.duration)
@@ -169,6 +172,8 @@ def live_segments(block: ScriptBlock, total: float) -> list[tuple[float, float]]
     """(start, end) seconds in the live's file for every timecode of the block, clipped to the file.
 
     A single time without an end ('0:26') is a moment the author points at: LIVE_DEFAULT_S from it."""
+    if not block.clocks:  # «заставка (в начале)»: no timecode means the start of the file
+        return [(0.0, min(LIVE_DEFAULT_S, total))]
     out = []
     for c in block.clocks:
         a = c.start
@@ -240,14 +245,12 @@ def assemble(script: Script, cut: RoughCut, metas: list[SourceMeta], source_map:
             meta = lives.get(live_key(block.links[0])) if block.links else None
             segs = (live_windows.get(block.id) or live_segments(block, meta.duration)) if meta else []
             if segs:
-                first = None
-                for a, z in segs:
-                    at_ = b.add_live(meta, a, z, block)
-                    first = at_ if first is None else first
-                b.marker(MarkerKind.INFO, text.split("\n")[0], text, block.id, at=first, duration=b.cursor - first)
-            else:
-                b.marker(MarkerKind.LIVE_MISSING, text.split("\n")[0], text, block.id)
-                b.placeholder(block, _live_seconds(block), text)
+                for a, z in segs:  # a placed live needs no marker
+                    b.add_live(meta, a, z, block)
+            else:  # a missing live gets a red marker as long as the live would be
+                seconds = _live_seconds(block)
+                b.marker(MarkerKind.LIVE_MISSING, text.split("\n")[0], text, block.id, duration=b.frames(seconds))
+                b.placeholder(block, seconds, text)
         elif block.kind == BlockKind.INSERT:
             b.marker(MarkerKind.INFO, "стендап, записанный отдельно", "\n".join((block.header,) + block.links),
                      block.id)
