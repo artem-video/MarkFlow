@@ -295,7 +295,7 @@ def assemble(script: Script, cut: RoughCut, metas: list[SourceMeta], source_map:
     sources = tuple(
         Source(id=m.id, path=m.path, kind=kinds.get(m.id, SourceKind.MAIN), fps=m.fps or sequence.fps,
                duration=seconds_to_ticks(m.duration), has_video=not m.audio_only,
-               audio_channels=max(1, m.audio_channels))
+               audio_channels=max(1, m.audio_channels), width=m.width or None, height=m.height or None)
         for m in metas if m.id in used)
     return EditPlan(episode=episode, profile=profile.channel.id, stage=Stage.DRAFT, sequence=sequence,
                     sources=sources, clips=tuple(b.clips), markers=tuple(b.markers), text_layers=tuple(b.layers))

@@ -27,3 +27,6 @@ include = ["markflow*", "acceptance*", "tools*"]
 testpaths = ["tests", "markflow"]
 python_files = ["test_*.py"]
 addopts = "-ra --strict-markers"
+
+[tool.setuptools.package-data]
+markflow = ["infra/prproj/*.xml"]

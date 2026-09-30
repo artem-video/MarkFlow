@@ -16,7 +16,7 @@ from typing import Annotated, Any, Callable
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2   # v2: Source.width/height (optional) so the writer can fit a picture into the frame
 
 Ticks = Annotated[int, Field(ge=0)]
 
@@ -96,6 +96,8 @@ class Source(_Model):
     has_video: bool = True
     audio_channels: int = Field(default=2, ge=0)
     content_hash: str | None = None
+    width: int | None = Field(default=None, gt=0, description="picture size: the writer fits it into the frame")
+    height: int | None = Field(default=None, gt=0)
 
 
 class Sequence(_Model):
@@ -250,7 +252,11 @@ def consistency_problems(plan: EditPlan) -> list[str]:
 # ---------- serialisation & migrations (strings only: the domain never touches files) ----------
 
 # MIGRATIONS[n] turns a version-n dict into a version-(n+1) dict.
-MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {}
+MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
+    # v1 -> v2: sources gained optional width/height; old plans simply have none (no fit-to-frame scale written)
+    1: lambda d: {**d, "sources": [{**s, "width": s.get("width"), "height": s.get("height")}
+                                    for s in d.get("sources", [])]},
+}
 
 
 def migrate(data: dict[str, Any], migrations: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] | None = None,

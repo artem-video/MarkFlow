@@ -150,3 +150,21 @@ def test_migration_errors():
 def test_from_json_rejects_garbage():
     with pytest.raises(PlanError):
         from_json("{not json")
+
+
+def test_v1_plan_migrates_to_v2_without_picture_sizes():
+    """A plan saved by the first MarkFlow (sources without width/height) still loads and has no sizes."""
+    import json
+
+    from markflow.domain.edit_plan import from_json
+
+    v1 = {
+        "schema_version": 1, "episode": "E", "profile": "p", "stage": "MF1_draft",
+        "sequence": {"name": "MF_DRAFT", "fps": "30000/1001", "width": 3840, "height": 2160},
+        "sources": [{"id": "a.mp4", "path": "C:/a.mp4", "kind": "main", "fps": "30000/1001", "duration": 254016000000,
+                     "has_video": True, "audio_channels": 2}],
+        "clips": [], "markers": [], "text_layers": [],
+    }
+    plan = from_json(json.dumps(v1))
+    assert plan.schema_version == SCHEMA_VERSION == 2
+    assert plan.sources[0].width is None and plan.sources[0].height is None

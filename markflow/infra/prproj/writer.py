@@ -32,6 +32,7 @@ VIDEO_ITEM_CLASS = "368b0406-29e3-4923-9fcd-094fbf9a1089"
 AUDIO_ITEM_CLASS = "064ec682-9ba6-11d5-af2d-9ca32c7d6164"
 SUBCLIP_CLASS = "e0c58dc9-dbdd-4166-aef7-5db7e3f22e84"
 VIDEO_CHAIN_CLASS = "0970e08a-f58f-4108-b29a-1a717b8e12e2"
+MOTION_TEMPLATE = Path(__file__).with_name("motion_chain.xml")  # Opacity + Motion chain written by Premiere
 AUDIO_CHAIN_CLASS = "3cb131d1-d3c0-47ae-a19a-bdf75ea11674"
 AUDIO_FILTER_CLASS = "d77a90a0-6c9e-44bf-9b20-de8c21168fe1"
 MUTE_PARAM_CLASS = "32657501-3aa4-445f-a49b-d09ecb9fa1ae"
@@ -58,6 +59,7 @@ class _Writer:
     def __init__(self, project: Project, plan: EditPlan, sequence_name: str,
                  media: dict[str, MediaSpec] | None = None, project_path: str | None = None):
         self.p, self.plan = project, plan
+        self.sources = {s.id: s for s in plan.sources}
         self.media = {norm_path(k): v for k, v in (media or {}).items()}
         self.project_path = project_path
         self.seq = project.sequence(sequence_name)
@@ -204,7 +206,56 @@ class _Writer:
             sub(item, "ID", self.p.new_guid())
         return self.p.add_object(item)
 
-    def _video_chain(self) -> etree._Element:
+    def _fit_scale(self, clip: Clip) -> float | None:
+        """Motion scale (%) that fits the clip's picture into the sequence frame (Premiere's «Scale to Frame Size»),
+        None when the picture already has the frame's size or the size is unknown."""
+        src = self.sources.get(clip.source_id)
+        if src is None or not src.width or not src.height or (src.width, src.height) == (self.width, self.height):
+            return None
+        return round(min(self.width / src.width, self.height / src.height) * 100, 3)
+
+    def _scaled_chain(self, scale: float) -> etree._Element:
+        """Opacity + Motion chain copied from a chain Premiere wrote (motion_chain.xml) with Motion Scale = scale
+        and the picture centred. Every object gets a fresh id; the references inside are remapped."""
+        tpl = etree.parse(str(MOTION_TEMPLATE)).getroot()
+        ids = {e.get("ObjectID"): self.p.new_id() for e in tpl}
+        made: dict[str, etree._Element] = {}
+        for e in tpl:
+            new = copy.deepcopy(e)
+            new.tail = None
+            new.set("ObjectID", ids[e.get("ObjectID")])
+            for r in new.iter():
+                if r.get("ObjectRef") in ids:
+                    r.set("ObjectRef", ids[r.get("ObjectRef")])
+            made[e.get("ObjectID")] = new
+        motion = next(e for e in made.values() if e.findtext("MatchName") == "AE.ADBE Motion")
+        by_new = {e.get("ObjectID"): e for e in made.values()}
+        text = f"{scale:.6f}".rstrip("0")  # '200.' like Premiere writes it, '112.5'
+        for ref in motion.iter("Param"):
+            param = by_new[ref.get("ObjectRef")]
+            name = param.findtext("Name")
+            start = param.find("StartKeyframe")
+            if name == "Scale":
+                head, _, tail = start.text.partition(",")
+                _, _, rest = tail.partition(",")
+                start.text = f"{head},{text},{rest}"
+                cur = param.find("CurrentValue")
+                if cur is None:
+                    cur = etree.SubElement(param, "CurrentValue")
+                    param.remove(cur)
+                    param.insert(list(param).index(start) + 1, cur)
+                cur.text = text.rstrip(".")
+            elif name == "Position":  # centred: normalised 0.5 : 0.5
+                head, _, tail = start.text.partition(",")
+                _, _, rest = tail.partition(",")
+                start.text = f"{head},0.5:0.5,{rest}"
+        for e in made.values():
+            self.p.add_object(e)
+        return made[tpl.get("chain")]
+
+    def _video_chain(self, scale: float | None = None) -> etree._Element:
+        if scale is not None and abs(scale - 100.0) > 0.01:
+            return self._scaled_chain(scale)
         c = el("VideoComponentChain", ObjectID=self.p.new_id(), ClassID=VIDEO_CHAIN_CLASS, Version="3")
         sub(c, "DefaultMotion", "true")
         sub(c, "DefaultOpacity", "true")
@@ -339,7 +390,7 @@ class _Writer:
             if clip.video_track is not None:
                 c = self._item_clip(video_clip, clip, None)
                 item = self._track_item(VIDEO_ITEM_CLASS, VIDEO_MEDIA_TYPE, clip.video_track, clip,
-                                        self._subclip(master, c), self._video_chain(), video=True)
+                                        self._subclip(master, c), self._video_chain(self._fit_scale(clip)), video=True)
                 self._append_to_track(self.video_tracks[clip.video_track], item)
                 linked.append(item)
             for channel, track in enumerate(clip.audio_tracks):
