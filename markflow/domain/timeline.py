@@ -61,7 +61,7 @@ class _Builder:
         v, a = self.profile.tracks.video, self.profile.tracks.audio
         channels = min(meta.audio_channels, len(a.voice))
         src_frame = ticks_per_frame(parse_fps(meta.fps)) if meta.fps else self.frame
-        src_in = (seconds_to_ticks(max(0.0, piece.start)) // src_frame) * src_frame
+        src_in = round(seconds_to_ticks(max(0.0, piece.start)) / src_frame) * src_frame  # cuts are frame-snapped
         last = self.clips[-1] if self.clips else None
         if last is not None and last.source_id == piece.source_id and last.end == self.cursor \
                 and abs(last.source_out - seconds_to_ticks(piece.start)) < self.frame:

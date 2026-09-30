@@ -14,6 +14,7 @@ from markflow.domain.profile import Profile
 from markflow.domain.script_model import Script
 from markflow.domain.timeline import assemble
 from markflow.domain.transcript import Transcript
+from markflow.shared.timecode import parse_fps
 from markflow.domain.triage_rules import SourceMap, SourceMeta, classify_sources, recording_order
 
 
@@ -53,7 +54,8 @@ def build_draft(script: Script, inputs: list[SourceInput], profile: Profile, seq
     rules = OffScriptRules(crew_names=tuple(profile.cut.crew_names))
     sources = {t.source_id: t for t in texts}
     envelopes = {i.meta.id: i.envelope for i in inputs}
-    rough = finish(build_flow(alignment, sources, rules, settings, written), sources, envelopes, settings)
+    frames = {m.id: 1 / float(parse_fps(m.fps)) for m in ordered if m.fps}
+    rough = finish(build_flow(alignment, sources, rules, settings, written), sources, envelopes, settings, frames)
     source_map = classify_sources(ordered, alignment)
     plan = assemble(script, rough, ordered, source_map, profile, sequence, episode)
     metrics = measure(plan, alignment, rough, envelopes, profile.cut.silence_db)

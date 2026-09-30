@@ -101,7 +101,8 @@ def run(ep_path: Path) -> int:
     log(f"plan: {len(result.plan.clips)} clips, {len(result.plan.markers)} markers, "
         f"{format_clock(result.metrics.duration_s)}")
 
-    out = new_output_path(ep.base_project)
+    ep.out_folder.mkdir(parents=True, exist_ok=True)
+    out = new_output_path(ep.base_project, folder=ep.out_folder)
     written = write_plan(ep.base_project, result.plan, out, ep.sequence)
     out.with_suffix(".edit_plan.json").write_text(to_json(result.plan), encoding="utf-8")
     log(f"written: {out}")

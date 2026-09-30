@@ -18,10 +18,11 @@ sources:
   - "%USERPROFILE%\\Videos\\Макашенец\\МОДНАЯ ПРОПАГАНДА\\Копия Keyed-Video_2608311425_0001.mov"
   - "%USERPROFILE%\\Videos\\Макашенец\\МОДНАЯ ПРОПАГАНДА\\VO_MAKASHENETS_20260904.wav"
 
-# a COPY of the episode project saved by Premiere (File > Save As), with every source above imported and an
-# EMPTY sequence named below — e.g. «МОДНАЯ ПРОПОГАНДА ч2 в» duplicated, emptied and renamed (4K 29.97, 13V/10A)
-base_project: "%USERPROFILE%\\Videos\\Макашенец\\МОДНАЯ ПРОПАГАНДА\\MF_base.prproj"
+# the empty template built from scratch in Premiere (stage 0.3): one empty sequence MF_DRAFT, 4K 29.97 (30000/1001),
+# 13 video / 10 audio tracks. Artem's own projects are never opened or copied; the writer imports the sources itself.
+base_project: templates/makashenets/MF_base.prproj
 sequence: MF_DRAFT
 
 cache: "%USERPROFILE%\\Videos\\MarkFlow\\cache"
-asr_engines: [gigaam-v3, parakeet-v3]
+output_dir: "%USERPROFILE%\\Videos\\MarkFlow\\out\\modnaya_propaganda"   # drafts go here, never next to originals
+asr_engines: [gigaam-v3]   # Artem's choice (PLAN §5.13); Parakeet comparison is backlog

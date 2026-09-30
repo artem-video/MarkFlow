@@ -77,7 +77,7 @@ def discover(episode: Path) -> tuple[Path, Path, str, Path]:
     from acceptance.episode import Episode
 
     ep = Episode.load(episode)
-    folder, stem = ep.base_project.parent, ep.base_project.stem
+    folder, stem = ep.out_folder, ep.base_project.stem
     plans = sorted(folder.glob(f"{stem}_MF1_draft*.edit_plan.json"), key=lambda p: p.stat().st_mtime)
     resaved = sorted(folder.glob(f"{stem}_MF1_gate3*.prproj"), key=lambda p: p.stat().st_mtime)
     if not plans:

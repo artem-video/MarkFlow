@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field, replace
 
 from markflow.domain.align import Alignment, Choice, Occurrence, SourceText
@@ -16,6 +17,7 @@ from markflow.domain.commands import OffScript, OffScriptRules, classify
 from markflow.domain.loudness import Envelope
 from markflow.shared.text_norm import normalize
 
+import numpy as np
 from rapidfuzz import fuzz
 
 
@@ -251,109 +253,157 @@ def build_flow(alignment: Alignment, sources: dict[str, SourceText], rules: OffS
 
 # ---------- boundaries & pauses ----------
 
-def _neighbour_bounds(src: SourceText, start: float, end: float) -> tuple[float, float]:
-    """End of the last word before `start`, start of the first word after `end` (other speech)."""
-    before = [t.end for t in src.tokens if t.end <= start + 1e-6]
-    after = [t.start for t in src.tokens if t.start >= end - 1e-6]
-    return (max(before) if before else 0.0), (min(after) if after else float("inf"))
+EDGE_MARGIN = 0.035   # s of silence kept on both sides of a (frame-snapped) cut: metric window + half a sequence frame
+CLEAN_RUN = 2 * EDGE_MARGIN + 0.02  # s: a silent run long enough to hold a frame-snapped cut with margins
+FORWARD_LOOK = 0.6
+EXTEND = 1.2          # s: how far a boundary may grow over neighbouring words to reach a pause    # s: ASR puts a word start early after a pause — look this far into the first word
 
 
-def _silent_edge(env: Envelope, lo: float, hi: float, threshold: float, leftwards: bool) -> float | None:
-    """Nearest point to the speech side of [lo, hi] where the level drops under threshold."""
-    hop = env.hop
-    if hi - lo < hop:
-        return None
-    steps = int((hi - lo) / hop)
-    order = range(steps - 1, -1, -1) if leftwards else range(steps)
-    for k in order:
-        t = lo + k * hop
-        if env.level(t, t + hop) < threshold:
-            return t + (hop if leftwards else 0.0)
+def _neighbours(src: SourceText, start: float, end: float) -> tuple[float, float, float, float]:
+    """(start of the word before, end of the first word, start of the last word, end of the word after).
+
+    ASR word times drift by up to a few hundred ms, so the search may cross ASR word edges; the envelope
+    decides where the silence really is. Only the other words' far ends are hard limits."""
+    before = [t for t in src.tokens if t.end <= start + 1e-6]
+    inside = [t for t in src.tokens if t.start >= start - 1e-6 and t.end <= end + 1e-6]
+    after = [t for t in src.tokens if t.start >= end - 1e-6]
+    prev_start = max((t.start for t in before), default=0.0)
+    first_end = inside[0].end if inside else end
+    last_start = inside[-1].start if inside else start
+    next_end = min((t.end for t in after), default=float("inf"))
+    return prev_start, first_end, last_start, next_end
+
+
+def _silent_runs(env: Envelope, lo: float, hi: float, threshold: float) -> list[tuple[float, float]]:
+    """Runs of hops quieter than threshold inside [lo, hi) (clipped to the window)."""
+    if hi - lo < env.hop:
+        return []
+    i, j = env._slice(lo, hi)
+    quiet = np.concatenate(([False], env.db[i:j] < threshold, [False]))
+    edges = np.flatnonzero(np.diff(quiet.astype(np.int8)))
+    return [((i + a) * env.hop, (i + b) * env.hop) for a, b in zip(edges[0::2], edges[1::2])]
+
+
+def _choose(near: list[tuple[float, float]], far: list[tuple[float, float]], t: float, edge: int,
+            far_key) -> tuple[float, float] | None:
+    """Clean pause next to the edge > clean pause over the neighbouring words > short dip next to the edge >
+    short dip further away."""
+    clean_near = [r for r in near if r[1] - r[0] >= CLEAN_RUN]
+    clean_far = [r for r in far if r[1] - r[0] >= CLEAN_RUN]
+    if clean_near:
+        return _pick(clean_near, t, edge)
+    if clean_far:
+        return min(clean_far, key=far_key)
+    if near:
+        return _pick(near, t, edge)
+    if far:
+        return min(far, key=far_key)
     return None
 
 
-def _onset(env: Envelope, lo: float, hi: float, threshold: float) -> float | None:
-    """First moment in [lo, hi) where the level rises to the threshold (speech starts)."""
-    t = lo
-    while t < hi:
-        if env.level(t, t + env.hop) >= threshold:
-            return t
-        t += env.hop
-    return None
+def _pick(runs: list[tuple[float, float]], t: float, edge: int) -> tuple[float, float]:
+    """The silent run holding t (ASR edge already in silence), else the one whose speech-side edge is nearest."""
+    wide = [r for r in runs if r[1] - r[0] >= CLEAN_RUN]
+    runs = wide or runs  # a 1–2 hop dip under the threshold is a poor place to cut when a real pause is near
+    holding = [r for r in runs if r[0] <= t <= r[1]]
+    if holding:
+        return holding[0]
+    return min(runs, key=lambda r: abs(r[edge] - t))
 
 
-def _offset(env: Envelope, lo: float, hi: float, threshold: float) -> float | None:
-    """Last moment in (lo, hi] where the level is at the threshold (speech ends)."""
-    t = hi - env.hop
-    while t >= lo:
-        if env.level(t, t + env.hop) >= threshold:
-            return t + env.hop
-        t -= env.hop
-    return None
+def _cut_in_run(a: float, b: float, speech_side: float, handle: float, into_run: int,
+                frame: float | None = None) -> float:
+    """A cut inside the silent run [a, b]: `handle` from the speech edge, at least EDGE_MARGIN from both ends,
+    on the source's frame grid when its frame length is known (the timeline can only cut on frames)."""
+    need = max(handle, EDGE_MARGIN)
+    if b - a <= 2 * EDGE_MARGIN:
+        t = (a + b) / 2
+    else:
+        t = min(max(speech_side - into_run * need, a + EDGE_MARGIN), b - EDGE_MARGIN)
+    if frame:
+        lo, hi = math.ceil((a + EDGE_MARGIN) / frame - 1e-9), math.floor((b - EDGE_MARGIN) / frame + 1e-9)
+        if lo <= hi:
+            k = min(max(round(t / frame), lo), hi)
+        else:
+            k = round(((a + b) / 2) / frame)
+        t = k * frame
+    return t
 
 
-def refine(piece: Piece, src: SourceText, env: Envelope, s: CutSettings) -> tuple[Piece, list[str]]:
-    """Put both ends at the real speech edges on the envelope, plus the handle, never into other speech.
+def refine(piece: Piece, src: SourceText, env: Envelope, s: CutSettings,
+           frame: float | None = None) -> tuple[Piece, list[str]]:
+    """Put both ends into real silence next to the speech edges on the envelope, never into other speech.
 
-    ASR word times drift at silence edges: when the word 'starts' in silence, move forward to the real onset;
-    when it starts inside sound, move back to the nearest silence.
+    ASR word times drift at silence edges: the start is searched from shortly before the ASR start (not before
+    the previous word began) to well into the first word; the silent run closest to the ASR start wins and the
+    cut goes `handle` before the sound onset, keeping a safety margin of silence on both sides.
     """
     warnings = []
     thr = s.silence_db
-    prev_end, next_start = _neighbour_bounds(src, piece.start, piece.end)
-    lo = max(prev_end, piece.start - s.search, 0.0)
-    hi = min(next_start, piece.end + s.search, env.duration)
+    prev_start, first_end, last_start, next_end = _neighbours(src, piece.start, piece.end)
+    search = max(s.search, 0.5)
 
-    if env.level(piece.start, piece.start + env.hop) < thr:
-        onset = _onset(env, piece.start, min(piece.end, piece.start + 2 * s.search + 0.5), thr)
-        edge = onset if onset is not None else piece.start
+    lo = max(prev_start + 0.05, piece.start - search, 0.0)
+    fwd = max(piece.start, min(first_end - 0.05, piece.start + FORWARD_LOOK, piece.end - s.min_piece))
+    near = _silent_runs(env, lo, fwd + env.hop, thr)
+    # no clean pause next to the ASR edge (speech runs on): take in the neighbouring word(s) up to the nearest
+    # pause rather than cut a live word — a word too many is safer than a cut through sound
+    far = _silent_runs(env, max(0.0, piece.start - EXTEND), lo, thr)
+    run = _choose(near, far, piece.start, edge=1, far_key=lambda r: -r[1])
+    if run:
+        start = _cut_in_run(run[0], run[1], run[1], s.handle, 1, frame)
     else:
-        edge = _silent_edge(env, lo, piece.start, thr, leftwards=True)
-        if edge is None:
-            edge = env.quietest(lo, piece.start + env.hop) if piece.start - lo >= env.hop else piece.start
-            if env.level(edge - env.hop, edge + env.hop) >= thr:
-                warnings.append(f"{piece.source_id} {piece.start:.2f}s: начало реза не в тишине")
-    start = max(lo, edge - s.handle)
+        start = env.quietest(lo, fwd + env.hop) if fwd - lo >= env.hop else piece.start
+        warnings.append(f"{piece.source_id} {piece.start:.2f}s: начало реза не в тишине")
 
-    if env.level(piece.end - env.hop, piece.end) < thr:
-        off = _offset(env, max(start, piece.end - 2 * s.search - 0.5), piece.end, thr)
-        edge = off if off is not None else piece.end
+    back = min(piece.end, max(last_start + 0.05, piece.end - FORWARD_LOOK, start + s.min_piece))
+    hi = min(next_end - 0.05, piece.end + search, env.duration)
+    near = _silent_runs(env, back, hi, thr) if hi > back else []
+    far = _silent_runs(env, max(hi, back), min(piece.end + EXTEND, env.duration), thr)
+    run = _choose(near, far, piece.end, edge=0, far_key=lambda r: r[0])
+    if run:
+        end = _cut_in_run(run[0], run[1], run[0], s.handle, -1, frame)
     else:
-        edge = _silent_edge(env, piece.end, hi, thr, leftwards=False)
-        if edge is None:
-            edge = env.quietest(piece.end, hi) if hi - piece.end >= env.hop else piece.end
-            if env.level(edge - env.hop, edge + env.hop) >= thr:
-                warnings.append(f"{piece.source_id} {piece.end:.2f}s: конец реза не в тишине")
-    end = min(hi, edge + s.handle)
-    return replace(piece, start=round(start, 4), end=round(max(end, start + s.min_piece), 4)), warnings
+        end = env.quietest(back, hi) if hi - back >= env.hop else piece.end
+        warnings.append(f"{piece.source_id} {piece.end:.2f}s: конец реза не в тишине")
+    return replace(piece, start=round(start, 6), end=round(max(end, start + s.min_piece), 6)), warnings
 
 
-def shorten_pauses(piece: Piece, env: Envelope, s: CutSettings) -> list[Piece]:
-    """Split a piece at silences longer than max_pause, leaving max_pause of the pause (half on each side)."""
+def shorten_pauses(piece: Piece, env: Envelope, s: CutSettings, frame: float | None = None) -> list[Piece]:
+    """Split a piece at silences longer than max_pause, leaving max_pause of the pause (half on each side).
+
+    No speech is dropped: every part between two long pauses is kept, however short."""
     keep = s.max_pause / 2
+
+    def snap(t: float) -> float:
+        return round(round(t / frame) * frame, 6) if frame else round(t, 4)
+
     out, cursor = [], piece.start
-    for a, b in env.silences(s.silence_db, s.max_pause + 2 * s.handle):
+    for a, b in env.silences(s.silence_db, s.max_pause + 2 * max(s.handle, EDGE_MARGIN)):
         a, b = float(a), float(b)
         if a <= piece.start + s.handle or b >= piece.end - s.handle:
             continue
-        out.append(replace(piece, start=cursor, end=round(a + keep, 4)))
-        cursor = round(b - keep, 4)
+        out.append(replace(piece, start=cursor, end=snap(a + keep)))
+        cursor = snap(b - keep)
     out.append(replace(piece, start=cursor, end=piece.end))
-    return [p for p in out if p.duration >= s.min_piece] or [piece]
+    return [p for p in out if p.duration > 0.02] or [piece]
 
 
 def finish(cut: RoughCut, sources: dict[str, SourceText], envelopes: dict[str, Envelope],
-           s: CutSettings = CutSettings()) -> RoughCut:
-    """Refine boundaries and shorten pauses for every piece and blooper."""
+           s: CutSettings = CutSettings(), frames: dict[str, float] | None = None) -> RoughCut:
+    """Refine boundaries and shorten pauses for every piece and blooper.
+
+    frames: source id -> frame length in seconds (cuts are snapped onto that grid inside the silence)."""
+    frames = frames or {}
     unsafe: list[str] = []
 
     def one(p: Piece) -> list[Piece]:
         env = envelopes.get(p.source_id)
         if env is None:
             return [p]
-        refined, warn = refine(p, sources[p.source_id], env, s)
+        refined, warn = refine(p, sources[p.source_id], env, s, frames.get(p.source_id))
         unsafe.extend(warn)
-        return shorten_pauses(refined, env, s)
+        return shorten_pauses(refined, env, s, frames.get(p.source_id))
 
     pieces: list[Piece] = []
     index_map: dict[int, int] = {}
@@ -366,6 +416,9 @@ def finish(cut: RoughCut, sources: dict[str, SourceText], envelopes: dict[str, E
             pieces[-1] = replace(pieces[-1], end=p.start)
             parts[0] = replace(parts[0], start=p.start)
             unsafe[:] = [w for w in unsafe if f"{p.start:.2f}s" not in w and f"{prev.end:.2f}s" not in w]
+        elif pieces and pieces[-1].source_id == parts[0].source_id and pieces[-1].start < parts[0].start                 < pieces[-1].end:
+            # both boundaries grew over the same words to reach a pause: play the audio once, as one through-edit
+            parts[0] = replace(parts[0], start=pieces[-1].end)
         pieces += parts
         index_map[i] = len(pieces) - 1
     markers = tuple(replace(m, after_piece=index_map.get(m.after_piece, m.after_piece)) for m in cut.markers)

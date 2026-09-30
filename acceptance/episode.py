@@ -35,6 +35,7 @@ class Episode:
     sequence: str
     cache: Path
     asr_engines: tuple[str, ...]
+    output_dir: Path | None = None   # where the drafts go; None = next to the base project
 
     @staticmethod
     def load(path: Path) -> "Episode":
@@ -47,8 +48,13 @@ class Episode:
             first_words=script.get("first_words"), last_words=script.get("last_words"),
             sources=_sources(data["sources"]), base_project=expand(data["base_project"]),
             sequence=data["sequence"], cache=expand(data["cache"]),
-            asr_engines=tuple(data.get("asr_engines", ["gigaam-v3", "parakeet-v3"])),
+            asr_engines=tuple(data.get("asr_engines", ["gigaam-v3"])),
+            output_dir=expand(data["output_dir"]) if data.get("output_dir") else None,
         )
+
+    @property
+    def out_folder(self) -> Path:
+        return self.output_dir or self.base_project.parent
 
 
 def _sources(entries: list[str]) -> tuple[Path, ...]:
@@ -58,7 +64,7 @@ def _sources(entries: list[str]) -> tuple[Path, ...]:
         path = expand(entry)
         if any(ch in str(path) for ch in "*?["):
             anchor = Path(path.anchor)
-            matches = sorted(anchor.glob(str(path.relative_to(anchor)))) if path.is_absolute() else []
+            matches = sorted(anchor.glob(str(path.relative_to(anchor))), key=lambda m: (len(m.parts), str(m)))                 if path.is_absolute() else []  # shallowest first: exports in subfolders never shadow the original
             for m in matches:
                 if m.is_file():
                     out.setdefault(m.name.lower(), m)
@@ -82,11 +88,12 @@ def report_dir() -> Path:
     return d
 
 
-def new_output_path(base: Path, stage: str = "MF1_draft") -> Path:
-    """<base>_MF1_draft.prproj next to the base; never an existing file."""
-    out = base.with_name(f"{base.stem}_{stage}.prproj")
+def new_output_path(base: Path, stage: str = "MF1_draft", folder: Path | None = None) -> Path:
+    """<base>_MF1_draft.prproj in `folder` (default: next to the base); never an existing file."""
+    folder = Path(folder) if folder else base.parent
+    out = folder / f"{base.stem}_{stage}.prproj"
     n = 2
-    while out.exists():
-        out = base.with_name(f"{base.stem}_{stage}_{n}.prproj")
+    while out.exists() or out.with_suffix(".edit_plan.json").exists():
+        out = folder / f"{base.stem}_{stage}_{n}.prproj"
         n += 1
     return out
