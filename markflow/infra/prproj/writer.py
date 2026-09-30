@@ -3,9 +3,9 @@
 The ONLY module allowed to save a .prproj (CLAUDE.md). Rules:
 - the base project is never modified: the result is a new file (refuses to overwrite the base or any
   existing file);
-- the base must already contain every source as an imported clip (Premiere creates media objects itself:
-  import the files in Premiere and save — see acceptance/tasks) and an empty target sequence with
-  enough tracks;
+- sources already imported in the base are reused; missing ones get master clips created from the files
+  (infra/prproj/media.py, values from ffprobe) — the base can be an empty template with one empty
+  target sequence with enough tracks;
 - only new objects are added; existing ones stay byte-identical except the lists that receive them
   (the target sequence's tracks, links and markers). Checked by validator.untouched_problems.
 
@@ -25,6 +25,7 @@ from markflow.domain.edit_plan import Clip, EditPlan, LabelColor, Marker, TextLa
 from markflow.infra.prproj.project import (
     AUDIO_MEDIA_TYPE, VIDEO_MEDIA_TYPE, Project, ProjectError, el, norm_path, sub,
 )
+from markflow.infra.prproj.media import MediaImporter, MediaSpec, spec_from_probe
 from markflow.shared.timecode import parse_fps, ticks_per_frame
 
 VIDEO_ITEM_CLASS = "368b0406-29e3-4923-9fcd-094fbf9a1089"
@@ -38,6 +39,7 @@ LEVEL_PARAM_CLASS = "a714635e-a628-4b27-9d59-77eba47dbc1a"
 SECONDARY_CLASS = "f9d004b5-cb04-4e2f-af6f-64fadc2c4be9"
 LINK_CLASS = "149d4ea5-a7d4-4b34-9bb7-16d783904bf2"
 MARKER_CLASS = "a45508e0-3ff7-4d04-90a7-2e0dfff4c910"
+MARKERS_CLASS = "bee50706-b524-416c-9f03-b596ce5f6866"
 ZERO_DB = "0.17782799899578094"  # Premiere's clip volume value for 0 dB
 
 # Premiere label order (Preferences > Labels). The ints for 0–7 are the ones seen next to these names in
@@ -53,8 +55,11 @@ class WriteError(ProjectError):
 
 
 class _Writer:
-    def __init__(self, project: Project, plan: EditPlan, sequence_name: str):
+    def __init__(self, project: Project, plan: EditPlan, sequence_name: str,
+                 media: dict[str, MediaSpec] | None = None, project_path: str | None = None):
         self.p, self.plan = project, plan
+        self.media = {norm_path(k): v for k, v in (media or {}).items()}
+        self.project_path = project_path
         self.seq = project.sequence(sequence_name)
         self.seq_id = self.seq.findtext("ID") or "1"
         self.video_tracks = project.tracks(self.seq, VIDEO_MEDIA_TYPE)
@@ -82,11 +87,16 @@ class _Writer:
             by_name.setdefault(path.rsplit("/", 1)[-1], []).append(mc)
         masters: dict[str, etree._Element] = {}
         missing = []
+        importer: MediaImporter | None = None
         for s in self.plan.sources:
             mc = by_path.get(norm_path(s.path))
             if mc is None:
                 same_name = by_name.get(norm_path(s.path).rsplit("/", 1)[-1], [])
                 mc = same_name[0] if len(same_name) == 1 else None
+            if mc is None and norm_path(s.path) in self.media:
+                if importer is None:
+                    importer = MediaImporter(self.p, self.project_path)
+                mc = importer.add(self.media[norm_path(s.path)])
             if mc is None:
                 missing.append(s.path)
                 continue
@@ -134,8 +144,10 @@ class _Writer:
             old = inner.find(tag)
             if old is not None:
                 inner.remove(old)
-        rate = inner.find("FrameRate")
-        pos = list(inner).index(rate) if rate is not None else len(inner)
+        anchor = inner.find("FrameRate")
+        if anchor is None:
+            anchor = inner.find("InUse")
+        pos = list(inner).index(anchor) if anchor is not None else len(inner)
         inner.insert(pos, el("OutPoint", str(clip.source_out)))
         inner.insert(pos, el("InPoint", str(clip.source_in)))
         if channel is not None:
@@ -278,10 +290,28 @@ class _Writer:
             links = sub(lc, "Links", Version="1")
         sub(links, "Link", Index=str(len(links)), ObjectRef=link.get("ObjectID"))
 
+    def _marker_list(self) -> etree._Element:
+        """A sequence that never had a marker (the empty template) has no MarkerOwner: add the same shape
+        Premiere writes (MarkerOwner right after Node -> Markers object with ByGUID/state fields)."""
+        container = el("Markers", ObjectID=self.p.new_id(), ClassID=MARKERS_CLASS, Version="4")
+        sub(container, "ByGUID", "byGUID")
+        sub(container, "LastMetadataState", "00000000-0000-0000-0000-000000000000")
+        sub(container, "LastContentState", "00000000-0000-0000-0000-000000000000")
+        self.p.add_object(container)
+        owner = self.seq.find("MarkerOwner")
+        if owner is None:
+            owner = el("MarkerOwner", Version="1")
+            node = self.seq.find("Node")
+            self.seq.insert(list(self.seq).index(node) + 1 if node is not None else 0, owner)
+        for old in owner.findall("Markers"):
+            owner.remove(old)
+        sub(owner, "Markers", ObjectRef=container.get("ObjectID"))
+        return container
+
     def _marker(self, start: int, name: str, comment: str) -> None:
         container = self.p.ref(self.seq.find("MarkerOwner/Markers"))
         if container is None:
-            raise WriteError("the target sequence has no marker list (open and save it once in Premiere)")
+            container = self._marker_list()
         guid = self.p.new_guid()
         payload = {"DVAMarker": {"mComment": comment, "mMarkerID": guid, "mName": name,
                                  "mStartTime": {"ticks": start}, "mType": "Comment"}}
@@ -337,15 +367,29 @@ def _layer_comment(t: TextLayer) -> str:
     return f"[текстовый слой V{t.video_track + 1}, {seconds:.1f} с]\n{t.text}"
 
 
-def write_plan(base: Path, plan: EditPlan, out: Path, sequence_name: str) -> Project:
-    """Write `plan` into a copy of `base` at `out` (a new file). Returns the written project."""
+def probe_media(plan: EditPlan) -> dict[str, MediaSpec]:
+    """ffprobe every source of the plan (for master clips the base project does not have yet)."""
+    from markflow.infra.media.ffmpeg import FfmpegAudio
+
+    audio = FfmpegAudio(Path("."))
+    return {s.path: spec_from_probe(s.path, audio.probe(Path(s.path))) for s in plan.sources if Path(s.path).is_file()}
+
+
+def write_plan(base: Path, plan: EditPlan, out: Path, sequence_name: str,
+               media: dict[str, MediaSpec] | None = None) -> Project:
+    """Write `plan` into a copy of `base` at `out` (a new file). Returns the written project.
+
+    media: path -> MediaSpec for sources the base has not imported; probed with ffprobe when None.
+    """
     base, out = Path(base), Path(out)
     if out.resolve() == base.resolve():
         raise WriteError("refusing to overwrite the base project")
     if out.exists():
         raise WriteError(f"{out} already exists: MarkFlow never overwrites a project")
     project = Project.load(base)
-    _Writer(project, plan, sequence_name).write()
+    if media is None:
+        media = probe_media(plan)
+    _Writer(project, plan, sequence_name, media, str(out)).write()
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = out.with_name(out.name + ".part")
     tmp.write_bytes(gzip.compress(project.to_bytes(), compresslevel=6))
@@ -353,7 +397,8 @@ def write_plan(base: Path, plan: EditPlan, out: Path, sequence_name: str) -> Pro
     return project
 
 
-def write_into(project: Project, plan: EditPlan, sequence_name: str) -> Project:
+def write_into(project: Project, plan: EditPlan, sequence_name: str,
+               media: dict[str, MediaSpec] | None = None) -> Project:
     """In-memory variant (tests, dry runs)."""
-    _Writer(project, plan, sequence_name).write()
+    _Writer(project, plan, sequence_name, media).write()
     return project

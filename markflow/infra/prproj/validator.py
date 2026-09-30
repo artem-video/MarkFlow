@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import copy
 from collections import Counter
 
 from lxml import etree
@@ -143,8 +144,24 @@ def untouched_problems(base: Project, out: Project, sequence_name: str) -> list[
         other = out.by_id.get(key) if e.get("ObjectID") == key else out.by_uid.get(key)
         if other is None:
             problems.append(f"object {e.tag} {key} disappeared")
-        elif key not in allowed and _canonical(e) != _canonical(other):
+        elif key not in allowed and _canonical(e) != _canonical(other) and not _bin_only_grew(e, other):
             problems.append(f"object {e.tag} {key} was changed")
         if len(problems) >= 50:
             break
     return problems
+
+
+def _bin_only_grew(base_el: etree._Element, out_el: etree._Element) -> bool:
+    """The root bin may receive new master clips (items appended after the existing ones), nothing else."""
+    if base_el.tag != "RootProjectItem":
+        return False
+    b_items = [(i.get("Index"), i.get("ObjectURef")) for i in base_el.findall("ProjectItemContainer/Items/Item")]
+    o_items = [(i.get("Index"), i.get("ObjectURef")) for i in out_el.findall("ProjectItemContainer/Items/Item")]
+    if o_items[:len(b_items)] != b_items:
+        return False
+    b, o = copy.deepcopy(base_el), copy.deepcopy(out_el)
+    for x in (b, o):
+        items = x.find("ProjectItemContainer/Items")
+        if items is not None:
+            items.getparent().remove(items)
+    return _canonical(b) == _canonical(o)

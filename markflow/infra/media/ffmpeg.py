@@ -42,6 +42,9 @@ class MediaInfo:
     height: int | None
     audio_channels: int
     audio_streams: int
+    video_codec_tag: str | None = None   # fourcc, e.g. 'avc1', 'apcs'
+    audio_rate: int = 48_000
+    timecode: str | None = None          # start timecode of the file, e.g. '07:33:49:05'
 
 
 def parse_probe(data: dict) -> MediaInfo:
@@ -57,6 +60,10 @@ def parse_probe(data: dict) -> MediaInfo:
         height=video.get("height") if video else None,
         audio_channels=int(audio[0].get("channels", 0)) if audio else 0,
         audio_streams=len(audio),
+        video_codec_tag=(video.get("codec_tag_string") or None) if video else None,
+        audio_rate=int(audio[0].get("sample_rate") or 48_000) if audio else 48_000,
+        timecode=next((s.get("tags", {}).get("timecode") for s in streams if s.get("tags", {}).get("timecode")),
+                      data.get("format", {}).get("tags", {}).get("timecode")),
     )
 
 
