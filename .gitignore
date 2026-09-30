@@ -1,0 +1,51 @@
+# Secrets (hard rule 4) — never in git
+gemini_api.txt
+*.api.txt
+credentials/
+*credentials*.json
+service_account*.json
+client_secret*.json
+token*.json
+.env
+.env.*
+!.env.example
+
+# Big media (hard rule 5) — only small fixtures under tests/fixtures/
+*.mov
+*.mp4
+*.mxf
+*.mkv
+*.avi
+*.m4a
+*.mp3
+*.aac
+*.flac
+!tests/fixtures/**/*.mp3
+*.wav
+!tests/fixtures/**/*.wav
+*.prproj
+!tests/fixtures/**/*.prproj
+*.prlock
+Adobe Premiere Pro Auto-Save/
+Adobe Premiere Pro Audio Previews/
+Adobe Premiere Pro Video Previews/
+
+# Caches and derived data
+.markflow_cache/
+cache/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+build/
+dist/
+node_modules/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
