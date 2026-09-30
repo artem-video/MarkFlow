@@ -195,7 +195,7 @@ def assemble(script: Script, cut: RoughCut, metas: list[SourceMeta], source_map:
     lives = lives or {}
     kinds = {r.meta.id: r.kind for r in source_map.sources}
     kinds.update({m.id: SourceKind.LIVE for m in lives.values()})
-    metas = list(metas) + list(lives.values())
+    metas = list({m.id: m for m in list(metas) + list(lives.values())}.values())  # one source per file
     b = _Builder(profile, sequence, {m.id: m for m in metas}, kinds)
     by_block: dict[str, list[tuple[int, Piece]]] = {}
     for i, p in enumerate(cut.pieces):

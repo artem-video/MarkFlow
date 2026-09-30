@@ -50,7 +50,8 @@
 			<Intrinsic>true</Intrinsic>
 			<ID>1</ID>
 		</Component>
-		<PremiereFilterPrivateData Encoding="base64" BinaryHash="3805854c-243a-c4be-bd40-a8a40000000e"/>
+		<PremiereFilterPrivateData Encoding="base64" BinaryHash="3805854c-243a-c4be-bd40-a8a40000000e">AQA=
+		</PremiereFilterPrivateData>
 		<MatchName>AE.ADBE Motion</MatchName>
 		<VideoFilterType>2</VideoFilterType>
 	</VideoFilterComponent>
