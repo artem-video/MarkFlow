@@ -71,6 +71,7 @@ class Occurrence:
     end: float
     coverage: float
     complete: bool
+    hits: frozenset[int] = frozenset()   # token indices matched to the sentence's words
 
     @property
     def sort_key(self) -> tuple[int, float]:
@@ -138,10 +139,11 @@ def word_sim(a: str, b: str) -> float:
 
 
 def _local_align(unit: tuple[str, ...], toks: tuple[Token, ...], lo: int, hi: int):
-    """Best local alignment of unit words against toks[lo:hi]. -> (score, t_first, t_last, matched unit idx set)."""
+    """Best local alignment of unit words against toks[lo:hi].
+    -> (score, t_first, t_last, matched unit idx set, matched token idx set)."""
     n, m = len(unit), hi - lo
     if m <= 0:
-        return 0.0, -1, -1, frozenset()
+        return 0.0, -1, -1, frozenset(), frozenset()
     prev = [0.0] * (m + 1)
     back: list[list[tuple[int, int, bool] | None]] = [[None] * (m + 1) for _ in range(n + 1)]
     best = (0.0, 0, 0)
@@ -168,15 +170,16 @@ def _local_align(unit: tuple[str, ...], toks: tuple[Token, ...], lo: int, hi: in
         prev = cur
     score, i, j = best
     if score <= 0:
-        return 0.0, -1, -1, frozenset()
-    matched, t_last, t_first = set(), lo + j - 1, lo + j - 1
+        return 0.0, -1, -1, frozenset(), frozenset()
+    matched, hit, t_last, t_first = set(), set(), lo + j - 1, lo + j - 1
     while i > 0 and j > 0 and back[i][j] is not None:
         pi, pj, is_match = back[i][j]
         if is_match:
             matched.add(i - 1)
+            hit.add(lo + j - 1)
             t_first = lo + j - 1
         i, j = pi, pj
-    return score, t_first, t_last, frozenset(matched)
+    return score, t_first, t_last, frozenset(matched), frozenset(hit)
 
 
 # ---------- occurrences ----------
@@ -221,7 +224,7 @@ def find_occurrences(unit: Unit, index: _Index) -> list[Occurrence]:
     for lo, hi in windows:
         # a merged window can hold several takes back to back: peel them off one by one
         while hi - lo >= 1:
-            score, a, b, matched = _local_align(unit.words, toks, lo, hi)
+            score, a, b, matched, hit = _local_align(unit.words, toks, lo, hi)
             if a < 0:
                 break
             coverage = len(matched) / n
@@ -230,7 +233,7 @@ def find_occurrences(unit: Unit, index: _Index) -> list[Occurrence]:
                 tail = max(matched) >= n - 1 - max(1, n // 5)
                 found.append(Occurrence(unit.id, index.src.source_id, index.src.order, a, b,
                                         toks[a].start, toks[b].end, round(coverage, 3),
-                                        coverage >= COMPLETE_COVERAGE and head and tail))
+                                        coverage >= COMPLETE_COVERAGE and head and tail, hit))
             else:
                 break
             left, right = (lo, a), (b + 1, hi)

@@ -12,7 +12,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field, replace
 
-from markflow.domain.align import Alignment, Choice, Occurrence, SourceText
+from markflow.domain.align import Alignment, Choice, Occurrence, SourceText, word_sim
 from markflow.domain.commands import OffScript, OffScriptRules, classify
 from markflow.domain.loudness import Envelope
 from markflow.shared.text_norm import normalize
@@ -89,17 +89,22 @@ def _text(src: SourceText, a: int, b: int) -> str:
     return " ".join(out)
 
 
+def _same(a: list[str], b: list[str]) -> bool:
+    return len(a) == len(b) and all(word_sim(x, y) >= 0.8 for x, y in zip(a, b))
+
+
 def _collapse_repeats(words: list[str]) -> list[str]:
-    """'если вдруг если вдруг меня' -> 'если вдруг меня' (stutters and restarts)."""
+    """'если вдруг если вдруг меня' -> 'если вдруг меня' (stutters and restarts, up to 10 words, ASR spelling
+    differences tolerated: 'гоу стадия поможет … гоу стади поможет …')."""
     out = list(words)
     changed = True
     while changed:
         changed = False
-        for n in (3, 2, 1):
+        for n in range(min(10, len(out) // 2), 0, -1):
             i = 0
             while i + 2 * n <= len(out):
-                if out[i:i + n] == out[i + n:i + 2 * n]:
-                    del out[i + n:i + 2 * n]
+                if _same(out[i:i + n], out[i + n:i + 2 * n]):
+                    del out[i:i + n]  # keep the later reading
                     changed = True
                 else:
                     i += 1
@@ -123,6 +128,7 @@ class _ScriptText:
         return res is not None
 
 
+RETAKE_WINDOW = 120.0  # s: a phrase repeated inside a take this soon after was a failed attempt
 PHRASE_GAP = 0.4  # s: a pause this long splits phrases when the ASR gives no punctuation (GigaAM)
 
 
@@ -158,11 +164,30 @@ def build_flow(alignment: Alignment, sources: dict[str, SourceText], rules: OffS
     prev: Occurrence | None = None
     prev_block: str | None = None
 
-    def kind_of(text: str) -> OffScript:
+    def retaken_later(src: SourceText, a: int, b: int) -> bool:
+        """The phrase is said again as part of a take within RETAKE_WINDOW s after it: a failed attempt."""
+        words = normalize(_text(src, a, b)).split()
+        if len(words) < 3:
+            return False
+        limit = src.tokens[b].end + RETAKE_WINDOW
+        stop = b + 1
+        while stop < len(src.tokens) and src.tokens[stop].start <= limit:
+            stop += 1
+        take = [src.tokens[k].word for k in range(b + 1, stop) if k in covered[src.source_id]]
+        if len(take) >= 3 and fuzz.partial_ratio_alignment(" ".join(words), " ".join(take), score_cutoff=80):
+            return True  # said again inside a script take
+        if len(words) < 4:
+            return False
+        # said again later off-script too (an ad read or a cut line re-recorded): the last reading wins
+        rest = " ".join(src.tokens[k].word for k in range(b + 1, stop))
+        return fuzz.partial_ratio_alignment(" ".join(words), rest, score_cutoff=85) is not None
+
+    def kind_of(src: SourceText, a: int, b: int) -> OffScript:
+        text = _text(src, a, b)
         kind = classify(text, rules)
         if kind == OffScript.COMMAND:
             return kind
-        if written.is_failed_take(text):
+        if written.is_failed_take(text) or retaken_later(src, a, b):
             return OffScript.JUNK
         if kind == OffScript.IMPROV_MEANINGFUL and text.rstrip().endswith(("...", "…")):
             return OffScript.JUNK  # an abandoned phrase: the speaker restarts after it
@@ -174,7 +199,7 @@ def build_flow(alignment: Alignment, sources: dict[str, SourceText], rules: OffS
             return [(a, b, OffScript.COMMAND)]
         parts: list[list] = []
         for x, y in _sentences(src, a, b):
-            kind = kind_of(_text(src, x, y))
+            kind = kind_of(src, x, y)
             if kind == OffScript.JUNK and len(normalize(_text(src, x, y)).split()) < rules.min_improv_words \
                     and parts and parts[-1][2] != OffScript.JUNK and not written.is_failed_take(_text(src, x, y)):
                 kind = parts[-1][2]  # a short tail of an improvised phrase belongs to it
