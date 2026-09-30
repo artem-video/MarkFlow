@@ -1,0 +1,11 @@
+# secrets (CLAUDE.md rule 4)
+gemini_api.txt
+.env
+.env.*
+!.env.example
+credentials/
+*.json.key
+# python
+__pycache__/
+*.pyc
+.pytest_cache/
