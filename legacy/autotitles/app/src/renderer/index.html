@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>Варламов Шортс Титры — Мост к Premiere</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <h1>Мост к Premiere</h1>
+  <section id="status-panel">
+    <p id="connection-status">Проверка подключения…</p>
+    <p id="sequence-info"></p>
+    <button id="install-cep-btn" hidden>Установить коннектор</button>
+  </section>
+  <section id="drop-zone">
+    Перетащите сюда .srt-файл
+    <div><button id="browse-btn">Обзор…</button></div>
+  </section>
+  <ul id="captions-list"></ul>
+  <script src="renderer.js"></script>
+</body>
+</html>
