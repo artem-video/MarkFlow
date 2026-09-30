@@ -1,0 +1,10 @@
+body { font-family: sans-serif; padding: 16px; }
+#drop-zone {
+  margin-top: 16px;
+  padding: 40px;
+  border: 2px dashed #999;
+  text-align: center;
+  color: #666;
+}
+#drop-zone.drag-over { border-color: #2b8; color: #2b8; }
+.warning { color: #b60; }

@@ -12,13 +12,17 @@ Collected on Artem's PC on 2026-09-30 (stage 0.2, part 1).
 | `scripts/agent_bridge/` | `bridge_watcher.py` — local faster-whisper job watcher | Videos\Макашенец\_agent_bridge |
 | `markflow_attempts/` | `MARKFLOW_HANDOFF.md`, `ТЕХПЛАН_комменты_в_таймлайн.md`, earlier local scripts (`markflow_engine.py`, `master_pipeline.py`, `generate_working_xml.py`, gemini-generated XML builders) and the first cloud attempt (`cloud_attempt_1/`, sources + tests, no outputs) | Videos\Макашенец |
 
-## Not found yet (needs Artem to point at the folder)
+## Added in part 2 (2026-09-30, local Claude Code on the PC)
 
-These were named in PLAN.md 0.2 but are **not inside the two folders connected to this session**
-(`Videos\Макашенец`, `Videos\MarkFlow`):
+| Folder | What | Origin |
+|---|---|---|
+| `scripts/robot/` | `prep.py` (loudness-envelope cut refinement), `auto.py`, `analyze.py`, `transcribe.py`, helpers (`rms.py`, `faces.py`, `reframe.py`, `make_srt*.py`), `robot.ps1`, `spec_*.json`, `ПРАВИЛА.md` | Videos\VARLAMOV\Shorts\_Робот (no venv/work/queue/logs) |
+| `autotitles/app/` | Electron window of the auto-titles app: `src/`, `test/`, `package.json` (no `node_modules`, no `.git`) | Videos\VARLAMOV\Daily Shorts\Варламов Шортс Титры\app |
+| `autotitles/cep_MCPBridgeCEP/` | the CEP extension the app installs (`CSXS/manifest.xml`, `main.js`, `host.jsx`, …) | %APPDATA%\Adobe\CEP\extensions\MCPBridgeCEP |
+| `autotitles/docs/` | design + plan of the Premiere bridge (2026-08-20) | same folder as the app |
+| `markflow_attempts/` | `MARKFLOW_HANDOFF.md` and `ТЕХПЛАН_…` refreshed from the newer local versions (29.09 / 27.09) | Videos\Макашенец |
 
-- `prep.py`, `auto.py`, `analyze.py`, `transcribe.py` (loudness-envelope cut refinement etc.)
-- the bridge and CEP extension from the auto-titles app (`Варламов Шортс Титры\app`)
+Secret scan (Gemini/OpenAI/GitHub keys, private keys, `api_key=`) over everything added in part 2: nothing found.
 
 Not copied on purpose: `gemini_api.txt` (secret), the guide PDF/DOCX binaries (11 MB / 8 MB — text extracts kept instead),
 screenshots, `Спец по Израилю [Сценарий].pdf`.
