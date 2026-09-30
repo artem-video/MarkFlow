@@ -17,6 +17,9 @@ class Audio(Protocol):
     def read(self, wav: Path) -> tuple[np.ndarray, int]:
         """(mono float samples, sample rate)."""
 
+    def extract_window(self, source: Path, start: float, duration: float, key: str) -> Path:
+        """16 kHz mono WAV of [start, start + duration) of the source (cached under `key`)."""
+
 
 class AsrEngine(Protocol):
     name: str

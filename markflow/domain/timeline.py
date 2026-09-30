@@ -187,8 +187,11 @@ def _live_seconds(block: ScriptBlock) -> float:
 
 
 def assemble(script: Script, cut: RoughCut, metas: list[SourceMeta], source_map: SourceMap, profile: Profile,
-             sequence: Sequence, episode: str, lives: dict[str, SourceMeta] | None = None) -> EditPlan:
-    """lives: live_key(link) -> the downloaded file; a link that is not there stays a text layer + marker."""
+             sequence: Sequence, episode: str, lives: dict[str, SourceMeta] | None = None,
+             live_windows: dict[str, list[tuple[float, float]]] | None = None) -> EditPlan:
+    """lives: live_key(link) -> the downloaded file; a link that is not there stays a text layer + marker.
+    live_windows: block id -> refined (start, end) in the file per timecode (application.lives); else the script's."""
+    live_windows = live_windows or {}
     lives = lives or {}
     kinds = {r.meta.id: r.kind for r in source_map.sources}
     kinds.update({m.id: SourceKind.LIVE for m in lives.values()})
@@ -235,7 +238,7 @@ def assemble(script: Script, cut: RoughCut, metas: list[SourceMeta], source_map:
         elif block.kind in (BlockKind.LIVE, BlockKind.QUOTE, BlockKind.BUTT):
             text = _live_text(block)
             meta = lives.get(live_key(block.links[0])) if block.links else None
-            segs = live_segments(block, meta.duration) if meta else []
+            segs = (live_windows.get(block.id) or live_segments(block, meta.duration)) if meta else []
             if segs:
                 first = None
                 for a, z in segs:

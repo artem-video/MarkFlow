@@ -101,6 +101,22 @@ class FfmpegAudio:
         os.replace(tmp, out)
         return out
 
+    def extract_window(self, source: Path, start: float, duration: float, key: str) -> Path:
+        """16 kHz mono WAV of [start, start + duration) of a source (a live is never transcribed whole)."""
+        out = self.cache_dir / "windows" / f"{key}.wav"
+        if out.is_file():
+            return out
+        out.parent.mkdir(parents=True, exist_ok=True)
+        tmp = out.with_name(out.stem + ".part.wav")
+        cmd = [self.ffmpeg, "-v", "error", "-nostdin", "-y", "-ss", f"{max(0.0, start):.3f}", "-t", f"{duration:.3f}",
+               "-i", str(source), "-map", "0:a:0", "-vn", "-ac", "1", "-ar", str(SAMPLE_RATE), "-c:a", "pcm_s16le",
+               str(tmp)]
+        res = self._run(cmd, capture_output=True, text=True)
+        if res.returncode != 0:
+            raise MediaError(f"ffmpeg failed on {source} [{start}+{duration}]: {res.stderr.strip()[-500:]}")
+        os.replace(tmp, out)
+        return out
+
     def read(self, wav: Path) -> tuple[np.ndarray, int]:
         with wave.open(str(wav), "rb") as w:
             if w.getsampwidth() != 2 or w.getnchannels() != 1:

@@ -18,6 +18,7 @@ from pathlib import Path
 from acceptance.episode import Episode, new_output_path, report_dir
 from markflow.application.build_draft import DraftResult, SourceInput, build_draft
 from markflow.application.reports import draft_md, source_map_md
+from markflow.application.lives import LiveRefiner, windows_of
 from markflow.application.transcribe import TranscribeEpisode
 from markflow.domain.edit_plan import Sequence, SourceKind, to_json
 from markflow.domain.script_model import RawDoc, parse_script, select_part
@@ -30,6 +31,7 @@ from markflow.infra.prproj.project import Project
 from markflow.infra.prproj.validator import plan_problems, structure_problems, untouched_problems
 from markflow.infra.prproj.writer import write_plan
 from markflow.profiles.loader import load_profile
+from markflow.shared.links import live_key
 from markflow.shared.timecode import format_clock, fps_from_frame_ticks, ticks_to_seconds
 
 
@@ -116,9 +118,19 @@ def run(ep_path: Path) -> int:
     sequence = Sequence(name=ep.sequence, fps=fps_from_frame_ticks(base.frame_ticks(seq)), width=width,
                         height=height)
     lives = live_metas(ep.lives_cache, audio)
+    live_windows = None
     if ep.lives_cache:
         log(f"lives: {len(lives)} downloaded files found in {ep.lives_cache}")
-    result = build_draft(script, inputs, profile, sequence, ep.name, lives)
+        wins = windows_of(script, lives, live_key)
+        if wins and ep.asr_engines:
+            from markflow.infra.asr.onnx_engine import OnnxAsrFactory
+            refiner = LiveRefiner(audio, OnnxAsrFactory(ep.asr_engines[0]), profile.cut.silence_db,
+                                  profile.cut.handle_s, profile.lives.refine_window_s, log)
+            t0 = time.time()
+            live_windows = refiner.refine_all(wins, {b: lives[live_key(blk.links[0])] for b, blk in
+                                                     ((blk.id, blk) for blk in script.blocks if blk.id in wins)})
+            log(f"lives: {sum(len(v) for v in live_windows.values())} cut points refined in {time.time() - t0:.0f} s")
+    result = build_draft(script, inputs, profile, sequence, ep.name, lives, live_windows)
     log(f"plan: {len(result.plan.clips)} clips, {len(result.plan.markers)} markers, "
         f"{format_clock(result.metrics.duration_s)}")
 
