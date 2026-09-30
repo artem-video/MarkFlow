@@ -26,3 +26,11 @@ so the episode file was NOT changed.
 
 ## Verdict
 Gates 2 and 3 are NOT passed. The module must not be called done.
+
+## Update 19:20 — sources are now reachable, Gate 2 still cannot run here
+Artem connected `МОДНАЯ ПРОПАГАНДА`. Found: `Копия 20260828_B0001..B0004.MP4`, `Копия 20260915_B0001.MP4`,
+`Копия Keyed-Video_2608311425_0001.mov`, `VO_MAKASHENETS_20260904.wav` (about 120 GB together).
+Missing: `MF_base.prproj` (step 2 not done; only the original `МОДНАЯ ПРОПАГАНДА.prproj` and an older `MarkFlow модная пропоганда.prproj` exist).
+Blocker: the shell that can see the files is a Linux VM (Cowork) without GPU and without Windows Python, so
+`%USERPROFILE%` paths, `CUDAExecutionProvider` and GigaAM/Parakeet ASR on 120 GB cannot run there. Gate 2 must be run in a
+Windows terminal (or Cowork with a Windows shell) on the PC. Status stays FAIL (not run).
