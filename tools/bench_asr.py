@@ -154,7 +154,10 @@ def load_model(name):
             segs, _ = m.transcribe(path, language="ru", word_timestamps=True, vad_filter=True, condition_on_previous_text=False)
             return [(w.word.strip(), w.start, w.end) for s in segs for w in (s.words or []) if w.word.strip()]
         return run, dev
+    add_cuda_dlls()
     import onnx_asr, onnxruntime as ort
+    try: ort.preload_dlls()
+    except Exception: pass
     mid = {"gigaam-v2-rnnt": "gigaam-v2-rnnt", "gigaam-v3-rnnt": "gigaam-v3-rnnt", "parakeet-v3": "nemo-parakeet-tdt-0.6b-v3"}[name]
     prov = ["CUDAExecutionProvider", "CPUExecutionProvider"] if "CUDAExecutionProvider" in ort.get_available_providers() else ["CPUExecutionProvider"]
     m = onnx_asr.load_model(mid, providers=prov).with_timestamps()
