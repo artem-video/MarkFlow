@@ -166,5 +166,26 @@ def test_v1_plan_migrates_to_v2_without_picture_sizes():
         "clips": [], "markers": [], "text_layers": [],
     }
     plan = from_json(json.dumps(v1))
-    assert plan.schema_version == SCHEMA_VERSION == 2
+    assert plan.schema_version == SCHEMA_VERSION
     assert plan.sources[0].width is None and plan.sources[0].height is None
+
+
+def test_v2_plan_migrates_to_v3_without_subtitles():
+    import json
+
+    v2 = {
+        "schema_version": 2, "episode": "E", "profile": "p", "stage": "MF1_draft",
+        "sequence": {"name": "MF_DRAFT", "fps": "30000/1001", "width": 3840, "height": 2160},
+        "sources": [], "clips": [], "markers": [], "text_layers": [],
+    }
+    plan = from_json(json.dumps(v2))
+    assert plan.schema_version == SCHEMA_VERSION == 3
+    assert plan.subtitles == ()
+
+
+def test_overlapping_subtitles_are_reported():
+    from markflow.domain.edit_plan import Subtitle, consistency_problems
+
+    sub = lambda i, a, d: Subtitle(id=i, start=t(a), duration=t(d), text="x")  # noqa: E731
+    bad = _plan().model_copy(update={"subtitles": (sub("s1", 0, 5), sub("s2", 3, 5))})
+    assert any(p.startswith("S1:") for p in consistency_problems(bad))

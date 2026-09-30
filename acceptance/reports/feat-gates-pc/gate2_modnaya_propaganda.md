@@ -2,9 +2,9 @@
 
 - script: saved export modnaya_propaganda_gdoc_text_and_threads.json
 - sources: 7
-- output: `C:\Users\Artem\Videos\MarkFlow\out\modnaya_propaganda\MF_base_MF1_draft_14.prproj`
-- plan: `C:\Users\Artem\Videos\MarkFlow\out\modnaya_propaganda\MF_base_MF1_draft_14.edit_plan.json`
-- clips: 576, markers: 257, text layers: 18, length 1:31:17
+- output: `C:\Users\Artem\Videos\MarkFlow\out\modnaya_propaganda\MF_base_MF1_draft_15.prproj`
+- plan: `C:\Users\Artem\Videos\MarkFlow\out\modnaya_propaganda\MF_base_MF1_draft_15.edit_plan.json`
+- clips: 576, markers: 247, subtitles: 10, text layers: 18, length 1:31:17
 
 ## Problems
 

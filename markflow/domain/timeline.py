@@ -14,8 +14,10 @@ from fractions import Fraction
 from markflow.domain.align import word_sim
 from markflow.domain.cut import Piece, RoughCut
 from markflow.domain.edit_plan import (
-    Clip, ClipReason, EditPlan, LabelColor, Marker, MarkerKind, Sequence, Source, SourceKind, Stage, TextLayer,
+    Clip, ClipReason, EditPlan, LabelColor, Marker, MarkerKind, Sequence, Source, SourceKind, Stage, Subtitle,
+    TextLayer,
 )
+from markflow.domain.comments_rules import Cue, cue_duration, is_nonstandard, place_cues, subtitle_text
 from markflow.domain.profile import Profile
 from markflow.domain.script_model import CHECK_RU, BlockKind, Script, ScriptBlock
 from markflow.domain.triage_rules import SourceMap, SourceMeta
@@ -38,6 +40,7 @@ class _Builder:
     clips: list[Clip] = field(default_factory=list)
     markers: list[Marker] = field(default_factory=list)
     layers: list[TextLayer] = field(default_factory=list)
+    cues: list[Cue] = field(default_factory=list)
     cursor: int = 0
 
     def __post_init__(self) -> None:
@@ -276,7 +279,10 @@ def assemble(script: Script, cut: RoughCut, metas: list[SourceMeta], source_map:
                             break
             body = c.text + ("".join(f"\n↳ {r}" for r in c.replies)) + (f"\n[к тексту: {c.anchor_text}]"
                                                                          if c.anchor_text else "")
-            b.marker(MarkerKind.SCRIPT_COMMENT, c.text[:120], body, block.id, at=at, duration=length)  # no author
+            if is_nonstandard(c.text):  # shown as a subtitle on its own track instead of a marker
+                b.cues.append(Cue(at, cue_duration(length, b.frame), subtitle_text(c.text), body, block.id))
+            else:
+                b.marker(MarkerKind.SCRIPT_COMMENT, c.text[:120], body, block.id, at=at, duration=length)  # no author
 
     for m in cut_markers.pop(-1, []):
         b.marker(MarkerKind.CHECK, m.text[:120], m.text, at=0)
@@ -301,7 +307,10 @@ def assemble(script: Script, cut: RoughCut, metas: list[SourceMeta], source_map:
                audio_channels=max(1, m.audio_channels), width=m.width or None, height=m.height or None)
         for m in metas if m.id in used)
     return EditPlan(episode=episode, profile=profile.channel.id, stage=Stage.DRAFT, sequence=sequence,
-                    sources=sources, clips=tuple(b.clips), markers=tuple(b.markers), text_layers=tuple(b.layers))
+                    sources=sources, clips=tuple(b.clips), markers=tuple(b.markers), text_layers=tuple(b.layers),
+                    subtitles=tuple(Subtitle(id=f"s{i:04d}", start=c.start, duration=c.duration, text=c.text,
+                                             note=c.note, script_ref=c.script_ref)
+                                    for i, c in enumerate(place_cues(b.cues, b.frame), 1)))
 
 
 def seconds(ticks: int) -> float:

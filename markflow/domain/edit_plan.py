@@ -16,7 +16,7 @@ from typing import Annotated, Any, Callable
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-SCHEMA_VERSION = 2   # v2: Source.width/height (optional) so the writer can fit a picture into the frame
+SCHEMA_VERSION = 3   # v2: Source.width/height (optional); v3: subtitles (non-standard script instructions)
 
 Ticks = Annotated[int, Field(ge=0)]
 
@@ -163,6 +163,18 @@ class TextLayer(_Model):
     script_ref: str | None = None
 
 
+class Subtitle(_Model):
+    """A non-standard instruction from the script shown as a subtitle on its own track (PLAN 5.1)."""
+
+    id: str = Field(min_length=1)
+    start: Ticks
+    duration: Ticks = Field(gt=0)
+    track: int = Field(default=0, ge=0, description="0 = the first subtitle track")
+    text: str = Field(min_length=1)
+    note: str = ""
+    script_ref: str | None = None
+
+
 class TrackPreset(_Model):
     """An audio preset applied to a whole track (Audio Track Mixer)."""
 
@@ -181,6 +193,7 @@ class EditPlan(_Model):
     clips: tuple[Clip, ...] = ()
     markers: tuple[Marker, ...] = ()
     text_layers: tuple[TextLayer, ...] = ()
+    subtitles: tuple[Subtitle, ...] = ()
     track_presets: tuple[TrackPreset, ...] = ()
 
     @model_validator(mode="after")
@@ -217,7 +230,8 @@ def consistency_problems(plan: EditPlan) -> list[str]:
     """Cross-object rules: unique ids, known sources, clips inside sources, no overlaps per track."""
     problems: list[str] = []
     ids = [s.id for s in plan.sources]
-    for group in (ids, [c.id for c in plan.clips], [m.id for m in plan.markers], [t.id for t in plan.text_layers]):
+    for group in (ids, [c.id for c in plan.clips], [m.id for m in plan.markers], [t.id for t in plan.text_layers],
+                  [u.id for u in plan.subtitles]):
         dupes = sorted({i for i in group if group.count(i) > 1})
         if dupes:
             problems.append(f"duplicate ids: {dupes}")
@@ -242,6 +256,11 @@ def consistency_problems(plan: EditPlan) -> list[str]:
             audio.setdefault(track, []).append((clip.start, clip.end, clip.id))
     for layer in plan.text_layers:
         video.setdefault(layer.video_track, []).append((layer.start, layer.start + layer.duration, layer.id))
+    subs: dict[int, list[tuple[int, int, str]]] = {}
+    for sub in plan.subtitles:
+        subs.setdefault(sub.track, []).append((sub.start, sub.start + sub.duration, sub.id))
+    for track, spans in sorted(subs.items()):
+        problems += [f"S{track + 1}: {p}" for p in _overlaps(spans)]
     for track, spans in sorted(video.items()):
         problems += [f"V{track + 1}: {p}" for p in _overlaps(spans)]
     for track, spans in sorted(audio.items()):
@@ -256,6 +275,8 @@ MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
     # v1 -> v2: sources gained optional width/height; old plans simply have none (no fit-to-frame scale written)
     1: lambda d: {**d, "sources": [{**s, "width": s.get("width"), "height": s.get("height")}
                                     for s in d.get("sources", [])]},
+    # v2 -> v3: plans gained subtitles; old plans have none
+    2: lambda d: {**d, "subtitles": d.get("subtitles", [])},
 }
 
 

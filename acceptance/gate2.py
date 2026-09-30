@@ -148,6 +148,7 @@ def run(ep_path: Path) -> int:
             log(f"lives: {sum(len(v) for v in live_windows.values())} cut points refined in {time.time() - t0:.0f} s")
     result = build_draft(script, inputs, profile, sequence, ep.name, lives, live_windows)
     log(f"plan: {len(result.plan.clips)} clips, {len(result.plan.markers)} markers, "
+        f"{len(result.plan.subtitles)} subtitles, "
         f"{format_clock(result.metrics.duration_s)}")
 
     problems += live_problems(script, lives, result.plan)
@@ -175,7 +176,7 @@ def run(ep_path: Path) -> int:
     report = [f"# Gate 2 — {ep.name}: {verdict}", "", f"- script: {script_from}",
               f"- sources: {len(metas)}", f"- output: `{out}`", f"- plan: `{out.with_suffix('.edit_plan.json')}`",
               f"- clips: {len(result.plan.clips)}, markers: {len(result.plan.markers)}, "
-              f"text layers: {len(result.plan.text_layers)}, length {format_clock(result.metrics.duration_s)}",
+              f"subtitles: {len(result.plan.subtitles)}, text layers: {len(result.plan.text_layers)}, length {format_clock(result.metrics.duration_s)}",
               "", "## Problems" if problems else "## Problems: none", ""]
     report += [f"- {p}" for p in problems]
     report += ["", f"Details: source_map_{slug}.md, draft_{slug}.md; frames for gate 3: gate3_frames_{slug}.txt"]
