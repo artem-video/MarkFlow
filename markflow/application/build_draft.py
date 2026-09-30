@@ -8,7 +8,7 @@ from markflow.domain.align import Alignment, SourceText, align, script_units
 from markflow.domain.commands import OffScriptRules
 from markflow.domain.cut import CutSettings, RoughCut, build_flow, finish
 from markflow.domain.edit_plan import EditPlan, Sequence
-from markflow.domain.loudness import Envelope
+from markflow.domain.loudness import Envelope, silence_threshold
 from markflow.domain.metrics import DraftMetrics, measure
 from markflow.domain.profile import Profile
 from markflow.domain.script_model import Script
@@ -55,8 +55,11 @@ def build_draft(script: Script, inputs: list[SourceInput], profile: Profile, seq
     sources = {t.source_id: t for t in texts}
     envelopes = {i.meta.id: i.envelope for i in inputs}
     frames = {m.id: 1 / float(parse_fps(m.fps)) for m in ordered if m.fps}
-    rough = finish(build_flow(alignment, sources, rules, settings, written), sources, envelopes, settings, frames)
+    seq_frame = 1 / float(parse_fps(sequence.fps))
+    thresholds = {sid: silence_threshold(env.db, settings.silence_db) for sid, env in envelopes.items()}
+    rough = finish(build_flow(alignment, sources, rules, settings, written), sources, envelopes, settings, frames,
+                   seq_frame, thresholds)
     source_map = classify_sources(ordered, alignment)
     plan = assemble(script, rough, ordered, source_map, profile, sequence, episode)
-    metrics = measure(plan, alignment, rough, envelopes, profile.cut.silence_db)
+    metrics = measure(plan, alignment, rough, envelopes, profile.cut.silence_db, thresholds)
     return DraftResult(plan, alignment, rough, source_map, metrics)

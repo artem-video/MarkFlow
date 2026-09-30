@@ -10,6 +10,15 @@ from dataclasses import dataclass
 import numpy as np
 
 FLOOR_DB = -100.0
+NOISE_MARGIN_DB = 6.0   # silence = this far above the quietest 5 % of the source (room tone of a noisy source)
+
+
+def silence_threshold(db: np.ndarray, base_db: float) -> float:
+    """Silence level of one source: the profile's threshold, raised for sources whose room tone sits above it
+    (a studio voice-over at -57 dB can never reach -60). Quiet sources keep the profile value."""
+    if len(db) == 0:
+        return base_db
+    return max(base_db, float(np.percentile(db, 5)) + NOISE_MARGIN_DB)
 
 
 @dataclass(frozen=True, eq=False)

@@ -355,8 +355,23 @@ def _cut_in_run(a: float, b: float, speech_side: float, handle: float, into_run:
     return t
 
 
+def _fit_end(start: float, end: float, seq_frame: float, run: tuple[float, float]) -> float:
+    """The timeline can only hold whole sequence frames: a clip is `start` .. start + k * seq_frame.
+
+    Pick the k whose end stays inside the silent run (with the widest margin that fits) and is nearest to `end`,
+    so the frame rounding done later in the timeline cannot push the cut onto the next sound."""
+    k0 = max(1, round((end - start) / seq_frame))
+    ks = sorted({max(1, k0 + d) for d in range(-3, 4)}, key=lambda k: abs(start + k * seq_frame - end))
+    for margin in (EDGE_MARGIN, 0.025, 0.015):
+        for k in ks:
+            t = start + k * seq_frame
+            if run[0] + margin <= t <= run[1] - margin:
+                return t
+    return start + k0 * seq_frame
+
+
 def refine(piece: Piece, src: SourceText, env: Envelope, s: CutSettings,
-           frame: float | None = None) -> tuple[Piece, list[str]]:
+           frame: float | None = None, seq_frame: float | None = None) -> tuple[Piece, list[str]]:
     """Put both ends into real silence next to the speech edges on the envelope, never into other speech.
 
     ASR word times drift at silence edges: the start is searched from shortly before the ASR start (not before
@@ -388,6 +403,8 @@ def refine(piece: Piece, src: SourceText, env: Envelope, s: CutSettings,
     run = _choose(near, far, piece.end, edge=0, far_key=lambda r: r[0])
     if run:
         end = _cut_in_run(run[0], run[1], run[0], s.handle, -1, frame)
+        if seq_frame:
+            end = _fit_end(start, end, seq_frame, run)
     else:
         end = env.quietest(back, hi) if hi - back >= env.hop else piece.end
         warnings.append(f"{piece.source_id} {piece.end:.2f}s: конец реза не в тишине")
@@ -415,7 +432,8 @@ def shorten_pauses(piece: Piece, env: Envelope, s: CutSettings, frame: float | N
 
 
 def finish(cut: RoughCut, sources: dict[str, SourceText], envelopes: dict[str, Envelope],
-           s: CutSettings = CutSettings(), frames: dict[str, float] | None = None) -> RoughCut:
+           s: CutSettings = CutSettings(), frames: dict[str, float] | None = None,
+           seq_frame: float | None = None, thresholds: dict[str, float] | None = None) -> RoughCut:
     """Refine boundaries and shorten pauses for every piece and blooper.
 
     frames: source id -> frame length in seconds (cuts are snapped onto that grid inside the silence)."""
@@ -426,9 +444,10 @@ def finish(cut: RoughCut, sources: dict[str, SourceText], envelopes: dict[str, E
         env = envelopes.get(p.source_id)
         if env is None:
             return [p]
-        refined, warn = refine(p, sources[p.source_id], env, s, frames.get(p.source_id))
+        sp = replace(s, silence_db=(thresholds or {}).get(p.source_id, s.silence_db))
+        refined, warn = refine(p, sources[p.source_id], env, sp, frames.get(p.source_id), seq_frame)
         unsafe.extend(warn)
-        return shorten_pauses(refined, env, s, frames.get(p.source_id))
+        return shorten_pauses(refined, env, sp, frames.get(p.source_id))
 
     pieces: list[Piece] = []
     index_map: dict[int, int] = {}

@@ -50,7 +50,7 @@ class DraftMetrics:
 
 
 def measure(plan: EditPlan, alignment: Alignment, cut: RoughCut, envelopes: dict[str, Envelope],
-            silence_db: float) -> DraftMetrics:
+            silence_db: float, thresholds: dict[str, float] | None = None) -> DraftMetrics:
     retakes = [c for c in alignment.choices if len([o for o in c.takes if o.complete]) > 1]
     last = 0
     for c in retakes:
@@ -70,9 +70,14 @@ def measure(plan: EditPlan, alignment: Alignment, cut: RoughCut, envelopes: dict
             and prev.end == clip.start
         through_out = nxt is not None and nxt.source_id == clip.source_id and nxt.source_in == clip.source_out \
             and clip.end == nxt.start
-        for t, through in ((clip.source_in, through_in), (clip.source_out, through_out)):
-            sec = ticks_to_seconds(t)
-            if not through and env.level(max(0.0, sec - 0.01), sec + 0.01) >= silence_db:
+        for t, through, is_in in ((clip.source_in, through_in, True), (clip.source_out, through_out, False)):
+            if through:
+                continue
+            # only the audio that STAYS matters at a junction: the first hop after an in-point, the last hop before
+            # an out-point (what is cut away next to it is not heard)
+            k = int(round(ticks_to_seconds(t) / env.hop))
+            k = k if is_in else k - 1
+            if 0 <= k < len(env.db) and float(env.db[k]) >= (thresholds or {}).get(clip.source_id, silence_db):
                 unsafe += 1
     return DraftMetrics(
         units_total=len(alignment.choices),
