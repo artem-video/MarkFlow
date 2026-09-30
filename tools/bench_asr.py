@@ -17,7 +17,7 @@ SR = 16000
 # id, source (glob ok), start s, duration s, reference (glob ok, optional), kind
 CLIPS = [
     dict(id="b0002_10min", src=str(EP / "Копия 20260828_B0002.MP4"), start=600, dur=600,
-         ref=str(EP / "Копия 20260828_B0002.json"), ref_kind="premiere_json"),
+         ref=None),   # Premiere transcript of B0002 uses a different time base (runs past the file end) - unusable as reference
     dict(id="keyed_5min", src=str(EP / "_test_downloads" / "keyed_audio_16k.wav"), start=60, dur=300, ref=None),
     dict(id="live_a_5min", src=str(EP / "Кто выращивает*.mp4"), start=60, dur=300,
          ref=str(EP / "Кто выращивает*.txt"), ref_kind="timed_txt"),
