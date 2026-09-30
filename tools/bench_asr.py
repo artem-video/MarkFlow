@@ -161,7 +161,7 @@ def load_model(name):
     mid = {"gigaam-v2-rnnt": "gigaam-v2-rnnt", "gigaam-v3-rnnt": "gigaam-v3-rnnt", "parakeet-v3": "nemo-parakeet-tdt-0.6b-v3"}[name]
     prov = ["CUDAExecutionProvider", "CPUExecutionProvider"] if "CUDAExecutionProvider" in ort.get_available_providers() else ["CPUExecutionProvider"]
     m = onnx_asr.load_model(mid, providers=prov).with_timestamps()
-    dev = "cuda" if prov[0].startswith("CUDA") else "CPU (onnxruntime-gpu missing)"
+    dev = "onnx (GPU if VRAM>0, else CPU)"
     def run(path):
         x = read_wav(path); cuts = split_points(x, SR); out = []
         for a, b in zip(cuts, cuts[1:]):
@@ -172,10 +172,15 @@ def load_model(name):
         return out
     return run, dev
 
-def run_all(out, models, clips):
+def run_all(out, models, clips, redo_cpu=True):
     (out / "hyp").mkdir(parents=True, exist_ok=True)
     for name in models:
-        todo = [c for c in clips if (out / "clips" / (c["id"] + ".wav")).exists() and not (out / "hyp" / f"{name}__{c['id']}.json").exists()]
+        def done(c):
+            p = out / "hyp" / f"{name}__{c['id']}.json"
+            if not p.exists(): return False
+            if name == "whisper-turbo" or redo_cpu is False: return True
+            return json.load(open(p, encoding="utf-8")).get("vram_mb", 0) > 0     # onnx result with 0 MB VRAM = ran on CPU
+        todo = [c for c in clips if (out / "clips" / (c["id"] + ".wav")).exists() and not done(c)]
         if not todo: continue
         print(f"\n=== {name}: loading")
         t0 = time.time()
@@ -191,10 +196,12 @@ def run_all(out, models, clips):
                 try: words = run(wav)
                 except Exception as e: print(" ERROR", str(e)[:200]); continue
                 el = time.time() - t1
-            json.dump(dict(model=name, clip=c["id"], device=dev, load_s=round(load_s, 1), infer_s=round(el, 1),
+            if name != "whisper-turbo": dev_used = "cuda" if g.used_mb > 0 else "CPU"
+            else: dev_used = dev
+            json.dump(dict(model=name, clip=c["id"], device=dev_used, load_s=round(load_s, 1), infer_s=round(el, 1),
                            audio_s=dur, rtfx=round(dur / el, 1), vram_mb=g.used_mb, words=[[w, round(s, 3), round(e, 3)] for w, s, e in words]),
                       open(out / "hyp" / f"{name}__{c['id']}.json", "w", encoding="utf-8"), ensure_ascii=False)
-            print(f" {len(words)} words, {el:.0f}s ({dur/el:.1f}x realtime), VRAM +{g.used_mb} MB [{dev}]")
+            print(f" {len(words)} words, {el:.0f}s ({dur/el:.1f}x realtime), VRAM +{g.used_mb} MB [{dev_used}]")
         del run
 
 
