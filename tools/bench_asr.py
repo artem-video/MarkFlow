@@ -218,7 +218,9 @@ def run_all(out, models, clips, redo_cpu=True, force=False):
             with GpuWatch() as g:
                 t1 = time.time()
                 try: words = run(wav)
-                except Exception as e: print(" ERROR", str(e)[:200]); continue
+                except Exception as e:
+                    import traceback; print(" ERROR", str(e)[:200])
+                    (out / "hyp" / f"{name}__{c['id']}__ERROR.txt").write_text(traceback.format_exc(), encoding="utf-8"); continue
                 el = time.time() - t1
             if name not in WHISPER: dev_used = "cuda" if on_gpu else "CPU"
             else: dev_used = dev
