@@ -172,22 +172,26 @@ def load_model(name):
         return out
     return run, dev
 
-def run_all(out, models, clips, redo_cpu=True):
+def run_all(out, models, clips, redo_cpu=True, force=False):
     (out / "hyp").mkdir(parents=True, exist_ok=True)
     for name in models:
         def done(c):
             p = out / "hyp" / f"{name}__{c['id']}.json"
-            if not p.exists(): return False
+            if force or not p.exists(): return False
             if name == "whisper-turbo" or redo_cpu is False: return True
             return json.load(open(p, encoding="utf-8")).get("vram_mb", 0) > 0     # onnx result with 0 MB VRAM = ran on CPU
         todo = [c for c in clips if (out / "clips" / (c["id"] + ".wav")).exists() and not done(c)]
         if not todo: continue
         print(f"\n=== {name}: loading")
         t0 = time.time()
-        try: run, dev = load_model(name)
-        except Exception as e:
+        with GpuWatch() as gl:
+            try: run, dev = load_model(name)
+            except Exception as e: run = None; load_err = e
+        if run is None:
+            e = load_err
             print(f"  ! {name} cannot load: {e}"); (out / "hyp" / f"{name}__LOADERROR.txt").write_text(str(e), encoding="utf-8"); continue
         load_s = time.time() - t0
+        on_gpu = gl.used_mb > 50   # model weights landed in GPU memory during load
         for c in todo:
             wav = str(out / "clips" / (c["id"] + ".wav")); dur = c["dur"]
             print(f"  {c['id']} ...", end="", flush=True)
@@ -196,7 +200,7 @@ def run_all(out, models, clips, redo_cpu=True):
                 try: words = run(wav)
                 except Exception as e: print(" ERROR", str(e)[:200]); continue
                 el = time.time() - t1
-            if name != "whisper-turbo": dev_used = "cuda" if g.used_mb > 0 else "CPU"
+            if name != "whisper-turbo": dev_used = "cuda" if on_gpu else "CPU"
             else: dev_used = dev
             json.dump(dict(model=name, clip=c["id"], device=dev_used, load_s=round(load_s, 1), infer_s=round(el, 1),
                            audio_s=dur, rtfx=round(dur / el, 1), vram_mb=g.used_mb, words=[[w, round(s, 3), round(e, 3)] for w, s, e in words]),
@@ -283,11 +287,11 @@ def main():
     ap.add_argument("cmd", choices=["prepare", "run", "report", "all"])
     ap.add_argument("--out", default=str(Path(__file__).resolve().parent.parent / "bench_out"))
     ap.add_argument("--models", default=",".join(MODELS)); ap.add_argument("--clips", default="")
-    ap.add_argument("--varlamov", default="")
+    ap.add_argument("--varlamov", default=""); ap.add_argument("--force", action="store_true")
     a = ap.parse_args(); out = Path(a.out); models = a.models.split(",")
     clips = [c for c in CLIPS if not a.clips or c["id"] in a.clips.split(",")]
     if a.cmd in ("prepare", "all"): prepare(out, clips, a.varlamov)
-    if a.cmd in ("run", "all"): run_all(out, models, clips)
+    if a.cmd in ("run", "all"): run_all(out, models, clips, force=a.force)
     if a.cmd in ("report", "all"): report(out, models, clips)
 
 if __name__ == "__main__":
