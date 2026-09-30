@@ -36,6 +36,7 @@ class Episode:
     cache: Path
     asr_engines: tuple[str, ...]
     output_dir: Path | None = None   # where the drafts go; None = next to the base project
+    lives_cache: Path | None = None  # downloaded lives (markflow.infra.downloader.ytdlp); None = text layers only
 
     @staticmethod
     def load(path: Path) -> "Episode":
@@ -50,6 +51,7 @@ class Episode:
             sequence=data["sequence"], cache=expand(data["cache"]),
             asr_engines=tuple(data.get("asr_engines", ["gigaam-v3"])),
             output_dir=expand(data["output_dir"]) if data.get("output_dir") else None,
+            lives_cache=expand(data["lives_cache"]) if data.get("lives_cache") else None,
         )
 
     @property

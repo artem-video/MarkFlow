@@ -19,6 +19,7 @@ from markflow.domain.edit_plan import (
 from markflow.domain.profile import Profile
 from markflow.domain.script_model import CHECK_RU, BlockKind, Script, ScriptBlock
 from markflow.domain.triage_rules import SourceMap, SourceMeta
+from markflow.shared.links import live_key
 from markflow.shared.text_norm import normalize
 from markflow.shared.timecode import format_clock, parse_fps, seconds_to_ticks, ticks_per_frame
 
@@ -94,6 +95,25 @@ class _Builder:
         self.cursor += duration
         return start
 
+    def add_live(self, meta: SourceMeta, start_s: float, end_s: float, block: ScriptBlock) -> int:
+        """A downloaded live in the main flow: the window start..end of the file on the lives tracks (V3, A3-A4)."""
+        v, a = self.profile.tracks.video.lives, self.profile.tracks.audio.lives
+        channels = min(max(1, meta.audio_channels), len(a))
+        src_frame = ticks_per_frame(parse_fps(meta.fps)) if meta.fps else self.frame
+        src_in = round(seconds_to_ticks(max(0.0, start_s)) / src_frame) * src_frame  # on the file's own frame grid
+        duration = self.frames(end_s - start_s)
+        total = seconds_to_ticks(meta.duration)
+        if src_in + duration > total:
+            duration = max(self.frame, ((total - src_in) // self.frame) * self.frame)
+        self.clips.append(Clip(
+            id=f"c{len(self.clips) + 1:04d}", source_id=meta.id, source_in=src_in, source_out=src_in + duration,
+            start=self.cursor, video_track=v, audio_tracks=tuple(a[:channels]), reason=ClipReason.LIVE,
+            color=self.profile.colors.live, script_ref=block.id,
+            note=f"ЛАЙВ {block.number or ''} {block.label}".strip()[:200]))
+        start = self.cursor
+        self.cursor += duration
+        return start
+
     def placeholder(self, block: ScriptBlock, seconds: float, text: str) -> None:
         duration = self.frames(seconds)
         self.layers.append(TextLayer(id=f"t{len(self.layers) + 1:04d}", start=self.cursor, duration=duration,
@@ -145,6 +165,20 @@ def _live_text(block: ScriptBlock) -> str:
     return "\n".join(lines)
 
 
+def live_segments(block: ScriptBlock, total: float) -> list[tuple[float, float]]:
+    """(start, end) seconds in the live's file for every timecode of the block, clipped to the file.
+
+    A single time without an end ('0:26') is a moment the author points at: LIVE_DEFAULT_S from it."""
+    out = []
+    for c in block.clocks:
+        a = c.start
+        b = c.end if c.end is not None and 0 < c.end - a <= LIVE_MAX_S else a + LIVE_DEFAULT_S
+        if a >= total:
+            continue
+        out.append((a, min(b, total)))
+    return out
+
+
 def _live_seconds(block: ScriptBlock) -> float:
     if block.kind == BlockKind.QUOTE:
         return QUOTE_S
@@ -153,8 +187,12 @@ def _live_seconds(block: ScriptBlock) -> float:
 
 
 def assemble(script: Script, cut: RoughCut, metas: list[SourceMeta], source_map: SourceMap, profile: Profile,
-             sequence: Sequence, episode: str) -> EditPlan:
+             sequence: Sequence, episode: str, lives: dict[str, SourceMeta] | None = None) -> EditPlan:
+    """lives: live_key(link) -> the downloaded file; a link that is not there stays a text layer + marker."""
+    lives = lives or {}
     kinds = {r.meta.id: r.kind for r in source_map.sources}
+    kinds.update({m.id: SourceKind.LIVE for m in lives.values()})
+    metas = list(metas) + list(lives.values())
     b = _Builder(profile, sequence, {m.id: m for m in metas}, kinds)
     by_block: dict[str, list[tuple[int, Piece]]] = {}
     for i, p in enumerate(cut.pieces):
@@ -196,8 +234,17 @@ def assemble(script: Script, cut: RoughCut, metas: list[SourceMeta], source_map:
                     b.marker(kind, m.text[:120], m.text, block.id)
         elif block.kind in (BlockKind.LIVE, BlockKind.QUOTE, BlockKind.BUTT):
             text = _live_text(block)
-            b.marker(MarkerKind.LIVE_MISSING, text.split("\n")[0], text, block.id)
-            b.placeholder(block, _live_seconds(block), text)
+            meta = lives.get(live_key(block.links[0])) if block.links else None
+            segs = live_segments(block, meta.duration) if meta else []
+            if segs:
+                first = None
+                for a, z in segs:
+                    at_ = b.add_live(meta, a, z, block)
+                    first = at_ if first is None else first
+                b.marker(MarkerKind.INFO, text.split("\n")[0], text, block.id, at=first, duration=b.cursor - first)
+            else:
+                b.marker(MarkerKind.LIVE_MISSING, text.split("\n")[0], text, block.id)
+                b.placeholder(block, _live_seconds(block), text)
         elif block.kind == BlockKind.INSERT:
             b.marker(MarkerKind.INFO, "стендап, записанный отдельно", "\n".join((block.header,) + block.links),
                      block.id)
@@ -223,7 +270,7 @@ def assemble(script: Script, cut: RoughCut, metas: list[SourceMeta], source_map:
                             break
             body = c.text + ("".join(f"\n↳ {r}" for r in c.replies)) + (f"\n[к тексту: {c.anchor_text}]"
                                                                          if c.anchor_text else "")
-            b.marker(MarkerKind.SCRIPT_COMMENT, f"{c.author}: {c.text}"[:120], body, block.id, at=at, duration=length)
+            b.marker(MarkerKind.SCRIPT_COMMENT, c.text[:120], body, block.id, at=at, duration=length)  # no author
 
     for m in cut_markers.pop(-1, []):
         b.marker(MarkerKind.CHECK, m.text[:120], m.text, at=0)

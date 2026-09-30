@@ -10,6 +10,7 @@ writes acceptance/reports/<branch>/gate2_<episode>.md (+ source map, draft repor
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
 from pathlib import Path
@@ -18,7 +19,7 @@ from acceptance.episode import Episode, new_output_path, report_dir
 from markflow.application.build_draft import DraftResult, SourceInput, build_draft
 from markflow.application.reports import draft_md, source_map_md
 from markflow.application.transcribe import TranscribeEpisode
-from markflow.domain.edit_plan import Sequence, to_json
+from markflow.domain.edit_plan import Sequence, SourceKind, to_json
 from markflow.domain.script_model import RawDoc, parse_script, select_part
 from markflow.domain.triage_rules import SourceMeta, with_recording_time
 from markflow.infra.cache import JsonFileStore, fast_fingerprint
@@ -55,6 +56,23 @@ def source_metas(paths: list[Path], audio: FfmpegAudio) -> list[SourceMeta]:
             id=path.name, path=str(path), duration=info.duration, fps=info.fps, audio_channels=info.audio_channels,
             width=info.width, height=info.height)))
     return metas
+
+
+def live_metas(lives_cache: Path | None, audio: FfmpegAudio) -> dict[str, SourceMeta]:
+    """live_key(link) -> probed file, for every live the downloader stored (links that failed are simply absent)."""
+    if lives_cache is None or not (lives_cache / "index.json").exists():
+        return {}
+    index = json.loads((lives_cache / "index.json").read_text(encoding="utf-8"))
+    out = {}
+    for key, rec in index.items():
+        p = Path(rec["path"]) if rec.get("path") else None
+        if p is None or not p.is_file():
+            continue
+        info = audio.probe(p)
+        out[key] = SourceMeta(id=p.name, path=str(p), duration=info.duration, fps=info.fps,
+                              audio_channels=info.audio_channels, width=info.width, height=info.height,
+                              kind=SourceKind.LIVE)
+    return out
 
 
 def check_frames(result: DraftResult, n: int = 5) -> list[float]:
@@ -97,7 +115,10 @@ def run(ep_path: Path) -> int:
     width, height = base.frame_size(seq)
     sequence = Sequence(name=ep.sequence, fps=fps_from_frame_ticks(base.frame_ticks(seq)), width=width,
                         height=height)
-    result = build_draft(script, inputs, profile, sequence, ep.name)
+    lives = live_metas(ep.lives_cache, audio)
+    if ep.lives_cache:
+        log(f"lives: {len(lives)} downloaded files found in {ep.lives_cache}")
+    result = build_draft(script, inputs, profile, sequence, ep.name, lives)
     log(f"plan: {len(result.plan.clips)} clips, {len(result.plan.markers)} markers, "
         f"{format_clock(result.metrics.duration_s)}")
 

@@ -40,7 +40,7 @@ def cut_settings(profile: Profile) -> CutSettings:
 
 
 def build_draft(script: Script, inputs: list[SourceInput], profile: Profile, sequence: Sequence,
-                episode: str) -> DraftResult:
+                episode: str, lives: dict[str, SourceMeta] | None = None) -> DraftResult:
     if not inputs:
         raise ValueError("no sources")
     ordered = recording_order([i.meta for i in inputs])
@@ -60,6 +60,6 @@ def build_draft(script: Script, inputs: list[SourceInput], profile: Profile, seq
     rough = improv_to_markers(finish(build_flow(alignment, sources, rules, settings, written), sources, envelopes,
                                      settings, frames, seq_frame, thresholds))
     source_map = classify_sources(ordered, alignment)
-    plan = assemble(script, rough, ordered, source_map, profile, sequence, episode)
+    plan = assemble(script, rough, ordered, source_map, profile, sequence, episode, lives)
     metrics = measure(plan, alignment, rough, envelopes, profile.cut.silence_db, thresholds)
     return DraftResult(plan, alignment, rough, source_map, metrics)

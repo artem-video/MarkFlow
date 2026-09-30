@@ -102,7 +102,7 @@ def test_markers(result):
     kinds = [m.kind for m in result.plan.markers]
     assert MarkerKind.SCRIPT_COMMENT in kinds and MarkerKind.LIVE_MISSING in kinds
     comment = next(m for m in result.plan.markers if m.kind == MarkerKind.SCRIPT_COMMENT)
-    assert comment.name.startswith("Макашенец: дать кадры")
+    assert comment.name.startswith("дать кадры") and "Макашенец" not in comment.name  # authors are not shown
     assert any(m.kind == MarkerKind.INFO and "крупный план" in m.name for m in result.plan.markers)
     assert any(m.kind == MarkerKind.CHECK and "лайв без ссылки" in m.name for m in result.plan.markers)
 

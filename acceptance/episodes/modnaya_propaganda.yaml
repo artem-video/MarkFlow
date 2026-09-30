@@ -25,4 +25,5 @@ sequence: MF_DRAFT
 
 cache: "%USERPROFILE%\\Videos\\MarkFlow\\cache"
 output_dir: "%USERPROFILE%\\Videos\\MarkFlow\\out\\modnaya_propaganda"   # drafts go here, never next to originals
+lives_cache: "E:\\MarkFlow\\lives"   # lives downloaded by markflow.infra.downloader.ytdlp (C: is nearly full)
 asr_engines: [gigaam-v3]   # Artem's choice (PLAN §5.13); Parakeet comparison is backlog
