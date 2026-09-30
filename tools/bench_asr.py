@@ -26,7 +26,15 @@ CLIPS = [
     # 5 min of a Varlamov short: give a path with  --varlamov "C:\...\file.mp4"
     dict(id="varlamov_5min", src=None, start=0, dur=300, ref=None),
 ]
-MODELS = ["whisper-turbo", "gigaam-v2-rnnt", "gigaam-v3-rnnt", "parakeet-v3"]
+MODELS = ["whisper-turbo", "gigaam-v2-rnnt", "gigaam-v3-rnnt", "parakeet-v3",
+          "canary-v2", "fastconformer-ru", "t-one", "whisper-turbo-novad", "whisper-ru-novad"]
+ONNX_IDS = {"gigaam-v2-rnnt": "gigaam-v2-rnnt", "gigaam-v3-rnnt": "gigaam-v3-rnnt", "parakeet-v3": "nemo-parakeet-tdt-0.6b-v3",
+            "canary-v2": "nemo-canary-1b-v2", "fastconformer-ru": "nemo-fastconformer-ru-rnnt", "t-one": "t-tech/t-one"}
+WHISPER = {  # name -> (repos to try in order, vad_filter)
+    "whisper-turbo": (["large-v3-turbo"], True),
+    "whisper-turbo-novad": (["large-v3-turbo"], False),
+    "whisper-ru-novad": (["bzikst/faster-whisper-large-v3-russian", "Ash8181/whisper-large-v3-russian-ct2"], False),
+}
 
 
 # ---------------------------------------------------------------- helpers
@@ -143,29 +151,36 @@ def add_cuda_dlls():
 
 def load_model(name):
     """-> (transcribe(wav_path) -> [(word, start, end)], device_note)"""
-    if name == "whisper-turbo":
+    if name in WHISPER:
         add_cuda_dlls()
         from faster_whisper import WhisperModel
-        try:
-            m = WhisperModel("large-v3-turbo", device="cuda", compute_type="float16"); dev = "cuda/float16"
-        except Exception as e:
-            print("  ! CUDA failed for faster-whisper:", str(e)[:200]); m = WhisperModel("large-v3-turbo", device="cpu", compute_type="int8"); dev = "CPU/int8 (CUDA FAILED)"
+        repos, vad = WHISPER[name]; m = None; dev = "cuda/float16"; err = None
+        for repo in repos:
+            try: m = WhisperModel(repo, device="cuda", compute_type="float16"); break
+            except Exception as e:
+                err = e; print(f"  ! {repo}: {str(e)[:160]}")
+        if m is None:
+            raise RuntimeError(f"cannot load any of {repos}: {err}")
         def run(path):
-            segs, _ = m.transcribe(path, language="ru", word_timestamps=True, vad_filter=True, condition_on_previous_text=False)
+            kw = dict(language="ru", word_timestamps=True, vad_filter=vad, condition_on_previous_text=False)
+            if not vad:   # keep everything the model hears: retakes, whispers, commands
+                kw.update(no_speech_threshold=None, log_prob_threshold=None, compression_ratio_threshold=None)
+            segs, _ = m.transcribe(path, **kw)
             return [(w.word.strip(), w.start, w.end) for s in segs for w in (s.words or []) if w.word.strip()]
         return run, dev
     add_cuda_dlls()
     import onnx_asr, onnxruntime as ort
     try: ort.preload_dlls()
     except Exception: pass
-    mid = {"gigaam-v2-rnnt": "gigaam-v2-rnnt", "gigaam-v3-rnnt": "gigaam-v3-rnnt", "parakeet-v3": "nemo-parakeet-tdt-0.6b-v3"}[name]
+    mid = ONNX_IDS[name]
     prov = ["CUDAExecutionProvider", "CPUExecutionProvider"] if "CUDAExecutionProvider" in ort.get_available_providers() else ["CPUExecutionProvider"]
     m = onnx_asr.load_model(mid, providers=prov).with_timestamps()
     dev = "onnx (GPU if VRAM>0, else CPU)"
     def run(path):
         x = read_wav(path); cuts = split_points(x, SR); out = []
         for a, b in zip(cuts, cuts[1:]):
-            r = m.recognize(x[a:b], sample_rate=SR)
+            try: r = m.recognize(x[a:b], sample_rate=SR, language="ru")   # multilingual models (Canary) want the language
+            except TypeError: r = m.recognize(x[a:b], sample_rate=SR)
             if r.tokens:
                 ws = tokens_to_words(r.tokens, r.timestamps, (b - a) / SR)
                 out += [(w, s + a / SR, e + a / SR) for w, s, e in ws]
@@ -178,8 +193,7 @@ def run_all(out, models, clips, redo_cpu=True, force=False):
         def done(c):
             p = out / "hyp" / f"{name}__{c['id']}.json"
             if force or not p.exists(): return False
-            if name == "whisper-turbo" or redo_cpu is False: return True
-            return json.load(open(p, encoding="utf-8")).get("vram_mb", 0) > 0     # onnx result with 0 MB VRAM = ran on CPU
+            return json.load(open(p, encoding="utf-8")).get("device", "").startswith("cuda")   # redo anything that ran on CPU
         todo = [c for c in clips if (out / "clips" / (c["id"] + ".wav")).exists() and not done(c)]
         if not todo: continue
         print(f"\n=== {name}: loading")
@@ -200,7 +214,7 @@ def run_all(out, models, clips, redo_cpu=True, force=False):
                 try: words = run(wav)
                 except Exception as e: print(" ERROR", str(e)[:200]); continue
                 el = time.time() - t1
-            if name != "whisper-turbo": dev_used = "cuda" if on_gpu else "CPU"
+            if name not in WHISPER: dev_used = "cuda" if on_gpu else "CPU"
             else: dev_used = dev
             json.dump(dict(model=name, clip=c["id"], device=dev_used, load_s=round(load_s, 1), infer_s=round(el, 1),
                            audio_s=dur, rtfx=round(dur / el, 1), vram_mb=g.used_mb, words=[[w, round(s, 3), round(e, 3)] for w, s, e in words]),
