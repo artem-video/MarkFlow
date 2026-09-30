@@ -42,6 +42,7 @@ class CutRules(_Model):
     min_clip_s: float = Field(default=0.3, gt=0)
     take_policy: str = Field(default="last", pattern=r"^(last|best)$")
     keep_improv: bool = True
+    crew_names: list[str] = Field(default=[], description="names said on set to the operator: marks commands")
 
 
 class Colors(_Model):

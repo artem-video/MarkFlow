@@ -41,6 +41,17 @@ class BlockKind(str, Enum):
     PART = "part"            # 'ЧАСТЬ 2': the episode is split into parts
 
 
+CHECK_RU = {
+    "live without a link": "лайв без ссылки (ссылка может быть в комментарии)",
+    "live without timecodes": "лайв без таймкодов",
+    "text without a СТЕНДАП header": "текст без заголовка СТЕНДАП",
+    "text right after a live without a СТЕНДАП header": "текст сразу после лайва без заголовка СТЕНДАП",
+    "timecode without a ЛАЙВ header": "таймкод без заголовка ЛАЙВ",
+    "direction with a link and timecodes: probably a live": "указание со ссылкой и таймкодом — похоже на лайв",
+    "comment anchor text occurs more than once": "текст под комментарием встречается дважды",
+}
+
+
 # ---------- input (built by infra) ----------
 
 @dataclass(frozen=True)

@@ -30,6 +30,7 @@ cut:
   min_clip_s: 0.3
   take_policy: last      # a re-recorded phrase: the last take wins
   keep_improv: true      # off-script speech is kept and coloured, never silently removed
+  crew_names: [Сань, Саня, Саша]   # the operator: «Пишем, да, Сань?» is a command, not speech
 
 colors:                  # Premiere label colours of clips
   improv_meaningful: Lavender

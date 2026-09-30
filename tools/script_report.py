@@ -9,7 +9,7 @@ import argparse
 from collections import Counter
 from pathlib import Path
 
-from markflow.domain.script_model import BlockKind, Script, parse_script
+from markflow.domain.script_model import CHECK_RU, BlockKind, Script, parse_script
 from markflow.infra.google.docs_reader import load_connector_export
 from markflow.profiles.loader import load_profile
 from markflow.shared.timecode import format_clock
@@ -18,15 +18,6 @@ KIND_RU = {
     BlockKind.STANDUP: "стендап", BlockKind.LIVE: "лайв", BlockKind.QUOTE: "цитата",
     BlockKind.VOICEOVER: "закадр", BlockKind.INSERT: "вставка стендапа", BlockKind.BUTT: "встык",
     BlockKind.DIRECTION: "указание", BlockKind.PART: "часть",
-}
-CHECK_RU = {
-    "live without a link": "лайв без ссылки (ссылка может быть в комментарии)",
-    "live without timecodes": "лайв без таймкодов",
-    "text without a СТЕНДАП header": "текст без заголовка СТЕНДАП",
-    "text right after a live without a СТЕНДАП header": "текст сразу после лайва без заголовка СТЕНДАП",
-    "timecode without a ЛАЙВ header": "таймкод без заголовка ЛАЙВ",
-    "direction with a link and timecodes: probably a live": "указание со ссылкой и таймкодом — похоже на лайв",
-    "comment anchor text occurs more than once": "текст под комментарием встречается дважды",
 }
 
 
