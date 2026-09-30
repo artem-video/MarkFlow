@@ -16,11 +16,13 @@ one stretch with audible sound but no words detected (`kv_0860s_…`).
 `Keyed-Video.MediaInfo.txt`.
 
 ## prproj/ (all saved by real Premiere, project version 45)
-- `premiere_saved_small_6seq.prproj` — 25 KB, 6 sequences, 4 markers, transitions, effects
+- `premiere_saved_small_6seq.prproj` — 25 KB, 2 sequences (an auto-cut test built as FCP XML, imported and saved by Premiere), 6 clips, 2 markers
 - `premiere_saved_real_episode_full.prproj` — 3.7 MB, the finished episode (17+ sequences, MOGRTs, transitions, effects); real-world anatomy sample
 
 **Still missing** (need live Premiere, see docs/PLAN.md 0.3): empty template, project with exactly 1 marker,
 exactly 1 MOGRT, exactly 1 transition, an effect on a track.
 
 ## script/
-`modnaya_propaganda_script.pdf` — PDF export of the script (no comments; the Google Doc must still be read through the API, stage 0.7).
+- `modnaya_propaganda_script.pdf` — PDF export of the script (no comments).
+- `modnaya_propaganda_gdoc_text_and_threads.json` — the Google Doc read through the Drive connector: text with `<comment_start id=kix..>` anchors + 146 comment threads (140 open, 6 resolved). Anchor ids do NOT map to thread ids here.
+- `modnaya_propaganda_comments_anchored.json` — the same doc exported as .docx: 193 comments (140 threads + 53 replies) each with its anchored text, paragraph index, author, resolved flag. **Resolved threads are not in the .docx export.**
