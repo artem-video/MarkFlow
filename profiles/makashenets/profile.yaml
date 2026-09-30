@@ -1,0 +1,111 @@
+# Channel profile: Makashenets. Human-readable rules: STYLE.md next to this file.
+# Sources: legacy/makashenets/GAID_PO_MONTAZHU_2026.pdf.txt (author's guide),
+#          legacy/makashenets/КАК_ЭТО_БЫЛО_СДЕЛАНО_методичка Ландыши2.md, «ПЕРЕДАЧА ДЕЛ_Ландыши 2»,
+#          Phantom cut settings used by Artem, track layout of «МОДНАЯ ПРОПОГАНДА ч2 в» (real episode fixture).
+profile_version: 1
+
+channel:
+  id: makashenets
+  name: Макашенец
+  language: ru
+
+script:
+  # Header words that open a block in the Google Doc (UPPER CASE, optional number before: «008 ЛАЙВ»).
+  cues:
+    standup: [СТЕНДАП, ТЕКСТ ВЕДУЩЕГО]
+    live: [ЛАЙВ]
+    quote: [ЦИТАТА]
+    voiceover: [ЗАКАДРОВЫЙ ТЕКСТ, ЗАКАДРОВЫЙ, ЗАКАДР]
+    insert: [СЮДА ВСТРАИВАЕМ]
+    butt: [ВСТЫК]
+    part: [ЧАСТЬ]
+  end_words: [КОНЕЦ]
+  reserve_words: [РЕЗЕРВ]
+
+cut:
+  # Phantom settings Artem uses on this channel.
+  silence_db: -60
+  max_pause_s: 0.5
+  handle_s: 0.04
+  min_clip_s: 0.3
+  take_policy: last      # a re-recorded phrase: the last take wins
+  keep_improv: true      # off-script speech is kept and coloured, never silently removed
+  crew_names: [Сань, Саня, Саша]   # the operator: «Пишем, да, Сань?» is a command, not speech
+
+colors:                  # Premiere label colours of clips
+  improv_meaningful: Lavender
+  improv_funny: Magenta  # Artem collects these for bloopers
+  live: Cerulean
+
+markers:
+  check_name: ПРОВЕРИТЬ
+  check_color: Rose
+  script_comment_color: Green
+  command_color: Violet
+  live_missing_color: Mango
+
+tracks:                  # 0 = V1 / A1; derived from the finished episode
+  video:
+    talking_head: 0      # V1: B-cam + Keyed-Video
+    sizes: 1             # V2: second shot size of the talking head
+    lives: 2             # V3: lives
+    images: [3, 4, 5]    # V4-V6: screenshots, photos
+    graphics: [6, 7, 8, 9, 10]  # V7+: MOGRT, titles, shapes
+    text_layers: 6       # lives that could not be downloaded
+  audio:
+    voice: [0, 1]        # A1-A2: host voice (two channels of the camera audio)
+    lives: [2, 3]        # A3-A4: lives
+    music: [4]           # A5
+    sfx: [5, 6]          # A6-A7
+    bleep: [7]           # A8: torn-paper bleeps
+
+lives:
+  max_height: 1440       # up to 2K, source quality, no re-encoding
+  file_name: "{channel}_{title}_{id}"
+  refine_window_s: 5
+  fit_to_frame: true
+
+voice:
+  preset: null           # set on the PC (stage 5.2): one of Artem's presets
+  presets_folder: null
+
+assets:                  # folders on Artem's PC, referenced, never copied; filled on the PC (stage 7)
+  music: []
+  sfx: []
+  mogrt: []
+  templates: []
+
+template: null           # template.prproj saved by Premiere (stage 0.3)
+
+style:
+  core_idea: Политика подаётся как видеоигра — игровые плашки, HUD, звуки из игр.
+  banned:
+    - отбивка Robert B. Weide
+    - старые мемы («дверь мне запили», «пацаны вообще ребята»), если не рифмуются со сказанным
+    - заезженные кадры из комедий (GOOOOOD NO из «Офиса», Эйс Вентура с ершиком)
+    - первая ассоциация, которую все видели сотни раз
+  liked:
+    - замедление речи на шаблонных и тупых фразах (прописано в сценарии)
+    - длинные синхроны обивать мемами с шокированными животными (хромакей)
+    - демотиваторы для противоречивых высказываний
+    - LOW QUALITY — EmotiGuy, нарочито всратый монтаж, взрыв и стоп-кадр
+    - Путина надувать эффектом Spherize, когда он говорит чушь
+    - sigma / aura edit со slowed + reverb, череп заменить на петуха
+    - игровые плашки с игровыми звуками
+    - цитаты оформлять нетипично, не вырезкой из статьи
+    - жопа из Губки Боба для «впечатляющих» цифр
+    - гросс-апы на стоп-кадре с тупым выражением лица
+  sounds: [Vine Boom, Taco Bell, Chill Guy, Cartoon Transition, Spider Man, FNAF 2, рваная бумага]
+  music_liked: [бас-гитара, живые барабаны, акустика]
+  music_banned: [электроника, синтезаторы]
+  bleep:
+    mode: partial        # Х**НЯ, not the whole word
+    sound: рваная бумага
+  aliases:
+    Путин: [Пыпа, ЛадимВладимыч]
+  red_lines:
+    - не шутить там, где реально страшно (погибшие, пострадавшие, их близкие) — ноль приёмов и звуков
+    - не выдумывать цифры, цитаты, должности, даты — ставить ПРОВЕРИТЬ
+    - один приём не больше трёх раз за ролик
+    - не придумывать за автора то, о чём можно спросить
+  max_technique_repeats: 3

@@ -1,0 +1,27 @@
+# Reference episode for gates 2 and 3 (paths on Artem's PC; %VARS% and ~ are expanded).
+episode: МОДНАЯ ПРОПАГАНДА
+profile: makashenets
+
+script:
+  doc_id: 1ZfKaT_PS7PbRUqQhY4b_1Cdl_KYPUhV_EtNGQJJJZRI   # read through the Drive API when credentials are set
+  # without credentials: the stage-0.7 export (re-export it if the doc changed)
+  export: tests/fixtures/script/modnaya_propaganda_gdoc_text_and_threads.json
+  anchored: tests/fixtures/script/modnaya_propaganda_comments_anchored.json
+  first_words: null      # part 1 / part 2: the first and last words of the part
+  last_words: null
+
+# talking-head sources only (lives come in stage 4); order does not matter, recording time decides.
+# Globs are allowed ('**' = any subfolder): in Artem's project the B-cam files sit in a nested folder.
+sources:
+  - "%USERPROFILE%\\Videos\\Макашенец\\МОДНАЯ ПРОПАГАНДА\\**\\Копия 20260828_B000*.MP4"
+  - "%USERPROFILE%\\Videos\\Макашенец\\МОДНАЯ ПРОПАГАНДА\\**\\*20260915_B0001.MP4"
+  - "%USERPROFILE%\\Videos\\Макашенец\\МОДНАЯ ПРОПАГАНДА\\Копия Keyed-Video_2608311425_0001.mov"
+  - "%USERPROFILE%\\Videos\\Макашенец\\МОДНАЯ ПРОПАГАНДА\\VO_MAKASHENETS_20260904.wav"
+
+# a COPY of the episode project saved by Premiere (File > Save As), with every source above imported and an
+# EMPTY sequence named below — e.g. «МОДНАЯ ПРОПОГАНДА ч2 в» duplicated, emptied and renamed (4K 29.97, 13V/10A)
+base_project: "%USERPROFILE%\\Videos\\Макашенец\\МОДНАЯ ПРОПАГАНДА\\MF_base.prproj"
+sequence: MF_DRAFT
+
+cache: "%USERPROFILE%\\Videos\\MarkFlow\\cache"
+asr_engines: [gigaam-v3, parakeet-v3]

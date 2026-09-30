@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "markflow"
+version = "0.0.1"
+description = "Talking-head shoot + Google Docs script -> editable Adobe Premiere Pro project"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "pydantic>=2.6",
+    "rapidfuzz>=3.6",
+    "numpy>=1.26",
+    "pyyaml>=6.0",
+    "lxml>=5.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+# stage 2.1 on the PC (GPU): only onnxruntime-gpu, never the CPU onnxruntime next to it
+asr = ["onnx-asr>=0.12", "onnxruntime-gpu==1.22.0"]
+
+[tool.setuptools.packages.find]
+include = ["markflow*", "acceptance*", "tools*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "markflow"]
+python_files = ["test_*.py"]
+addopts = "-ra --strict-markers"
