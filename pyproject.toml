@@ -16,6 +16,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+# stage 2.1 on the PC (GPU): only onnxruntime-gpu, never the CPU onnxruntime next to it
+asr = ["onnx-asr>=0.12", "onnxruntime-gpu==1.22.0"]
 
 [tool.setuptools.packages.find]
 include = ["markflow*", "acceptance*", "tools*"]
