@@ -6,6 +6,7 @@ read disappears from the re-saved project. This script compares that re-saved ti
 edit_plan.json and checks the exported check frames.
 
     python -m acceptance.gate3 <draft.edit_plan.json> <resaved.prproj> --sequence MF_DRAFT --frames <folder>
+    python -m acceptance.gate3 --episode acceptance/episodes/modnaya_propaganda.yaml   (finds everything itself)
 """
 
 from __future__ import annotations
@@ -71,13 +72,35 @@ def run(plan_path: Path, resaved: Path, sequence: str, frames: Path | None) -> i
     return 0 if not problems else 1
 
 
+def discover(episode: Path) -> tuple[Path, Path, str, Path]:
+    """Latest draft plan, the project Premiere re-saved and the frames folder, from the episode file."""
+    from acceptance.episode import Episode
+
+    ep = Episode.load(episode)
+    folder, stem = ep.base_project.parent, ep.base_project.stem
+    plans = sorted(folder.glob(f"{stem}_MF1_draft*.edit_plan.json"), key=lambda p: p.stat().st_mtime)
+    resaved = sorted(folder.glob(f"{stem}_MF1_gate3*.prproj"), key=lambda p: p.stat().st_mtime)
+    if not plans:
+        raise SystemExit(f"no {stem}_MF1_draft*.edit_plan.json in {folder}: run gate 2 first")
+    if not resaved:
+        raise SystemExit(f"no {stem}_MF1_gate3.prproj in {folder}: open the draft in Premiere and Save As that name")
+    return plans[-1], resaved[-1], ep.sequence, report_dir() / f"frames_{episode.stem}"
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("plan", type=Path)
-    ap.add_argument("resaved", type=Path)
+    ap.add_argument("plan", type=Path, nargs="?")
+    ap.add_argument("resaved", type=Path, nargs="?")
     ap.add_argument("--sequence", default="MF_DRAFT")
     ap.add_argument("--frames", type=Path)
+    ap.add_argument("--episode", type=Path, help="find plan, re-saved project and frames from the episode file")
     a = ap.parse_args()
+    if a.episode:
+        plan, resaved, sequence, frames = discover(a.episode)
+        frames.mkdir(parents=True, exist_ok=True)
+        sys.exit(run(plan, resaved, sequence, frames))
+    if not (a.plan and a.resaved):
+        ap.error("give PLAN and RESAVED, or --episode")
     sys.exit(run(a.plan, a.resaved, a.sequence, a.frames))
 
 

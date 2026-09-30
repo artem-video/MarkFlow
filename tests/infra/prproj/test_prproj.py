@@ -122,11 +122,12 @@ def test_links_join_video_and_both_channels(base):
 
 def test_write_plan_to_a_new_file(base, tmp_path):
     base_file = tmp_path / "base.prproj"
-    base_file.write_bytes(gzip.compress(base.to_bytes()))
+    original = gzip.compress(base.to_bytes())
+    base_file.write_bytes(original)
     out = tmp_path / "base_MF1_draft.prproj"
     write_plan(base_file, plan(), out, SEQ)
     assert out.read_bytes()[:2] == b"\x1f\x8b"
-    assert base_file.read_bytes() == gzip.compress(base.to_bytes())  # untouched
+    assert base_file.read_bytes() == original  # untouched
     with pytest.raises(WriteError, match="never overwrites"):
         write_plan(base_file, plan(), out, SEQ)
     with pytest.raises(WriteError, match="overwrite the base"):
