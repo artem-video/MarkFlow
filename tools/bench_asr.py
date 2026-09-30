@@ -206,6 +206,12 @@ def run_all(out, models, clips, redo_cpu=True, force=False):
             print(f"  ! {name} cannot load: {e}"); (out / "hyp" / f"{name}__LOADERROR.txt").write_text(str(e), encoding="utf-8"); continue
         load_s = time.time() - t0
         on_gpu = gl.used_mb > 50   # model weights landed in GPU memory during load
+        if name not in WHISPER:    # memory delta lies when the previous model left its memory reserved: ask onnxruntime directly
+            try:
+                import gc, onnxruntime as _ort
+                ss = [o for o in gc.get_objects() if isinstance(o, _ort.InferenceSession)]
+                if ss: on_gpu = all("CUDAExecutionProvider" in o.get_providers() for o in ss)
+            except Exception: pass
         for c in todo:
             wav = str(out / "clips" / (c["id"] + ".wav")); dur = c["dur"]
             print(f"  {c['id']} ...", end="", flush=True)
@@ -221,6 +227,7 @@ def run_all(out, models, clips, redo_cpu=True, force=False):
                       open(out / "hyp" / f"{name}__{c['id']}.json", "w", encoding="utf-8"), ensure_ascii=False)
             print(f" {len(words)} words, {el:.0f}s ({dur/el:.1f}x realtime), VRAM +{g.used_mb} MB [{dev_used}]")
         del run
+        import gc; gc.collect()
 
 
 # ---------------------------------------------------------------- report
