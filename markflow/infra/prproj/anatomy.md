@@ -59,3 +59,22 @@ Sequence (UID) ── TrackGroups[0..2]: VideoTrackGroup, AudioTrackGroup, DataT
 3. Append items to a track's `ClipItems/TrackItems` with increasing `Index`, keep `Start` monotonic per track, no overlaps.
 4. Never touch existing items (CLAUDE.md rule 1); a stage only adds.
 5. Close the project in Premiere before writing (`*.prlock`), reopen after.
+
+## Added in stage 3 (from the fixtures, 2026-09-30)
+- **Native saves omit defaults.** Items Premiere created itself store only `TrackItem/Node/ID`, `Start`, `End`;
+  `TrackIndex`, `TrackRefCount`, `MediaType`, `Type`, `LinkRefCount` are absent. Items that came in through
+  FCP XML and were saved by Premiere carry them all. Both forms are valid Premiere 26 output; the writer uses the
+  full form. The validator checks `TrackIndex` / `LinkRefCount` only when present.
+- **Speed** lives on the item's clip: `Clip/PlaybackSpeed` (e.g. 0.8) + `MaintainAudioPitch`; then
+  `(End-Start) × speed ≈ OutPoint-InPoint`.
+- **Clip label** = `Clip/Node/Properties/{asl.clip.label.color (int), asl.clip.label.name (BE.Prefs.LabelColors.N)}`
+  on the item's own Video/AudioClip (N = label index, Violet = 0 … Yellow = 15).
+- **Audio per channel:** each audio track item has its own AudioClip (copy of the master's) with one
+  `SecondaryContent` (`Content` = master's AudioMediaSource, `ChannelIndex` = k), `SecondaryIndex` = k and a mono
+  `AudioChannelLayout`; its component chain = `Internal Volume Mono` (Mute, Level 0.1778 = 0 dB).
+- **Links:** `Link` object with the V + A items, listed in `Sequence/PersistentGroupContainer/LinkContainer/Links`.
+- **Sequence markers:** `Sequence/MarkerOwner/Markers` → `Markers` object → `Markers/Marker{First=guid, Second=ref}`
+  → `Marker/DVAMarker` JSON (`mName`, `mComment`, `mMarkerID`, `mStartTime.ticks`, `mType`). Native markers of
+  2026 carry only `mMarkerID/mStartTime/mType`; colour and duration keys still unknown (text layers are written as
+  markers until then).
+- The real episode's main sequence «МОДНАЯ ПРОПОГАНДА ч2 в»: 3840×2160, 29.97 fps, 13 video / 10 audio tracks.

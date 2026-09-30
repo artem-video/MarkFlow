@@ -36,9 +36,10 @@ class DraftMetrics:
     def problems(self) -> list[str]:
         """Thresholds of the MVP table. Empty = OK."""
         out = []
-        if self.units_found < self.units_total:
-            out.append(f"строки сценария найдены не все: {self.units_found}/{self.units_total} "
-                       f"(пропуски помечены ПРОВЕРИТЬ)")
+        # a missing line is allowed when it is marked ПРОВЕРИТЬ (always done); less than half found = wrong input
+        if self.units_total and self.found_share < 0.5:
+            out.append(f"найдено меньше половины строк сценария ({self.units_found}/{self.units_total}): "
+                       f"не те исходники или не та часть сценария?")
         if self.units_with_retakes and self.last_take_share < 0.95:
             out.append(f"последний дубль выбран в {self.last_take_share:.0%} случаев (< 95 %)")
         if self.junk_share > 0.05:

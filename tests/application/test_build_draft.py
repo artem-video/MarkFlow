@@ -116,9 +116,10 @@ def test_metrics(result):
 
 
 def test_metric_thresholds():
-    m = DraftMetrics(10, 9, 4, 3, 0.08, 2, 0, 0, 0, 0, 60.0)
+    m = DraftMetrics(10, 4, 4, 3, 0.08, 2, 0, 0, 0, 0, 60.0)
     text = " ".join(m.problems())
-    assert "9/10" in text and "75%" in text and "8.0%" in text and "живому" in text
+    assert "4/10" in text and "75%" in text and "8.0%" in text and "живому" in text
+    assert DraftMetrics(10, 9, 0, 0, 0.0, 0, 0, 0, 0, 0, 60.0).problems() == []  # missing lines are marked
 
 
 def test_reports(result):

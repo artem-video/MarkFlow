@@ -85,3 +85,9 @@ def format_clock(seconds: float) -> str:
     h, rest = divmod(total, 3600)
     m, s = divmod(rest, 60)
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
+
+def fps_from_frame_ticks(ticks: int) -> str:
+    """4233600000 -> '60', 8475667200 -> '30000/1001' (the form parse_fps reads back)."""
+    fps = Fraction(TICKS_PER_SECOND, ticks)
+    return str(fps.numerator) if fps.denominator == 1 else f"{fps.numerator}/{fps.denominator}"
