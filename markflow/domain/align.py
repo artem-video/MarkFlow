@@ -251,6 +251,8 @@ def find_occurrences(unit: Unit, index: _Index) -> list[Occurrence]:
 LAST_TAKE_BONUS = 1.0   # the rule: the last complete take wins
 CONTINUITY_BONUS = 0.4  # tie-breaker: the next sentence follows right after in the same recording
 CONTINUITY_GAP = 15.0   # s
+BLOCK_SOURCE_BONUS = 3.0  # one information block = one recording/camera: no hopping between takes of the same text
+BLOCK_FULL_COVERAGE = 0.8  # a source "records the block" when it has complete takes for this share of its sentences
 
 
 def _drop_isolated(units: list[Unit], takes: list[list[Occurrence]]) -> list[list[Occurrence]]:
@@ -290,6 +292,18 @@ def _choose_all(units: list[Unit], takes: list[list[Occurrence]]) -> list[Choice
     last_complete = [next((o for o in reversed(t) if o.complete), None) for t in ordered]
     # states per unit: its takes, or a single None when nothing was found
     states = [t if t else [None] for t in ordered]
+    # which sources record a whole block (complete takes for most of its sentences) — a re-shot single line
+    # (pickup) does not: there the last take wins on its own
+    per_block: dict[str, int] = {}
+    have: dict[tuple[str, str], int] = {}
+    for k, unit in enumerate(units):
+        per_block[unit.block_id] = per_block.get(unit.block_id, 0) + 1
+        for sid in {o.source_id for o in ordered[k] if o.complete}:
+            have[(unit.block_id, sid)] = have.get((unit.block_id, sid), 0) + 1
+
+    def records_block(block_id: str, sid: str) -> bool:
+        return have.get((block_id, sid), 0) >= BLOCK_FULL_COVERAGE * per_block[block_id] and per_block[block_id] >= 3
+
     score: list[list[float]] = []
     back: list[list[int]] = []
     for k, sts in enumerate(states):
@@ -305,6 +319,10 @@ def _choose_all(units: list[Unit], takes: list[list[Occurrence]]) -> list[Choice
                 val = score[k - 1][pi]
                 if p is not None and o is not None and _continues(p, o):
                     val += CONTINUITY_BONUS
+                if p is not None and o is not None and p.source_id == o.source_id \
+                        and units[k - 1].block_id == units[k].block_id \
+                        and records_block(units[k].block_id, o.source_id):
+                    val += BLOCK_SOURCE_BONUS
                 if val > best:
                     best, arg = val, pi
             row.append(best + base)

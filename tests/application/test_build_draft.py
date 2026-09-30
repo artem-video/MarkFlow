@@ -90,13 +90,12 @@ def test_clips_are_on_profile_tracks_and_frame_aligned(result):
         assert c.start % frame == 0 and c.duration % frame == 0
 
 
-def test_bloopers_after_the_end_coloured(result):
+def test_improvisation_is_not_placed_on_the_timeline(result):
+    """Artem: everything that is not in the script stays out of the timeline (no bloopers tail, no inline improv);
+    off-script speech is only named by a marker."""
     plan = result.plan
-    bloopers = [c for c in plan.clips if c.reason == ClipReason.IMPROV_MEANINGFUL]
-    assert len(bloopers) == 1 and bloopers[0].color.value == "Lavender"
-    last_script = max(c.end for c in plan.clips if c.reason == ClipReason.SCRIPT)
-    assert bloopers[0].start >= max(last_script, plan.text_layers[-1].start + plan.text_layers[-1].duration) \
-        + seconds_to_ticks(5) - 4_233_600_000
+    assert not [c for c in plan.clips if c.reason in (ClipReason.IMPROV_MEANINGFUL, ClipReason.IMPROV_FUNNY)]
+    assert all(c.reason in (ClipReason.SCRIPT, ClipReason.VOICEOVER) for c in plan.clips)
 
 
 def test_markers(result):

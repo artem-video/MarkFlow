@@ -308,13 +308,15 @@ class _Writer:
         sub(owner, "Markers", ObjectRef=container.get("ObjectID"))
         return container
 
-    def _marker(self, start: int, name: str, comment: str) -> None:
+    def _marker(self, start: int, name: str, comment: str, duration: int = 0) -> None:
         container = self.p.ref(self.seq.find("MarkerOwner/Markers"))
         if container is None:
             container = self._marker_list()
         guid = self.p.new_guid()
         payload = {"DVAMarker": {"mComment": comment, "mMarkerID": guid, "mName": name,
                                  "mStartTime": {"ticks": start}, "mType": "Comment"}}
+        if duration > 0:  # a ranged marker; key seen in a Premiere 2026 save of a marker with a duration
+            payload["DVAMarker"]["mDuration"] = {"ticks": duration}
         marker = el("Marker", ObjectID=self.p.new_id(), ClassID=MARKER_CLASS, Version="3")
         sub(marker, "DVAMarker", json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
         self.p.add_object(marker)
@@ -349,7 +351,7 @@ class _Writer:
             if len(linked) > 1:
                 self._link(linked)
         for m in sorted(self.plan.markers, key=lambda m: m.start):
-            self._marker(m.start, _marker_name(m), _marker_comment(m))
+            self._marker(m.start, _marker_name(m), _marker_comment(m), m.duration)
         for t in self.plan.text_layers:
             self._marker(t.start, t.text.split("\n")[0][:120], _layer_comment(t))
 

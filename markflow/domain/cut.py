@@ -273,7 +273,92 @@ def build_flow(alignment: Alignment, sources: dict[str, SourceText], rules: OffS
                 bloopers.append(Piece(sid, src.tokens[a].start, src.tokens[b].end, kind.value, text=text))
             elif kind == OffScript.COMMAND and len(normalize(text).split()) >= 4:
                 notes.append(CutMarker(-2, "command", f"со съёмки ({sid} {src.tokens[a].start:.0f} с): «{text}»"))
-    return RoughCut(tuple(pieces), tuple(markers + notes), tuple(bloopers), tuple(missing), round(junk, 2))
+    cut = RoughCut(tuple(pieces), tuple(markers + notes), tuple(bloopers), tuple(missing), round(junk, 2))
+    return drop_restarts(cut, sources)
+
+
+def _restart_spans(words: list[str]) -> list[tuple[int, int]]:
+    """Index ranges [a, b) of the EARLIER copy of a phrase said twice in a row (stutter / restart without a pause):
+    'если вам меньше тридцати | если вам меньше тридцати лет' -> drop the first copy, keep the later reading.
+
+    Two or more words, or a one-letter/two-letter word ('а а', 'и и'); a repeated content word is emphasis."""
+    idx = list(range(len(words)))
+    spans: list[tuple[int, int]] = []
+    changed = True
+    while changed:
+        changed = False
+        for n in range(min(10, len(idx) // 2), 0, -1):
+            i = 0
+            while i + 2 * n <= len(idx):
+                a = [words[k] for k in idx[i:i + n]]
+                b = [words[k] for k in idx[i + n:i + 2 * n]]
+                if _same(a, b) and (n >= 2 or len(a[0]) <= 2):
+                    spans.append((idx[i], idx[i + n - 1] + 1))
+                    del idx[i:i + n]
+                    changed = True
+                else:
+                    i += 1
+    return spans
+
+
+def drop_restarts(cut: RoughCut, sources: dict[str, SourceText]) -> RoughCut:
+    """Inside every kept piece: cut out the failed first attempt when a phrase is restarted right away."""
+    out: list[Piece] = []
+    index_map: dict[int, int] = {}
+    dropped = 0.0
+    for i, p in enumerate(cut.pieces):
+        src = sources.get(p.source_id)
+        if src is None or p.kind not in ("script", "improv_funny", "improv_meaningful"):
+            out.append(p)
+            index_map[i] = len(out) - 1
+            continue
+        toks = [k for k, t in enumerate(src.tokens) if t.start >= p.start - 1e-6 and t.end <= p.end + 1e-6]
+        spans = _restart_spans([src.tokens[k].word for k in toks]) if len(toks) >= 4 else []
+        if not spans:
+            out.append(p)
+            index_map[i] = len(out) - 1
+            continue
+        gone = set()
+        for a, b in spans:
+            gone.update(range(a, b))
+        runs: list[list[int]] = []
+        for j in range(len(toks)):
+            if j in gone:
+                continue
+            if runs and runs[-1][-1] == j - 1:
+                runs[-1].append(j)
+            else:
+                runs.append([j])
+        for r, run in enumerate(runs):
+            a_t, b_t = src.tokens[toks[run[0]]], src.tokens[toks[run[-1]]]
+            start = p.start if run[0] == 0 else a_t.start
+            end = p.end if run[-1] == len(toks) - 1 else b_t.end
+            out.append(replace(p, start=start, end=end, unit_ids=p.unit_ids if r == 0 else (),
+                               text=_text(src, toks[run[0]], toks[run[-1]]), checks=p.checks if r == 0 else ()))
+        index_map[i] = len(out) - 1  # a marker "after this piece" goes after its last part
+        dropped += sum(src.tokens[toks[j]].end - src.tokens[toks[j]].start for j in gone)
+    markers = tuple(replace(m, after_piece=index_map.get(m.after_piece, m.after_piece)) if m.after_piece >= 0 else m
+                    for m in cut.markers)
+    return replace(cut, pieces=tuple(out), markers=markers, junk_seconds=round(cut.junk_seconds + dropped, 2))
+
+
+def improv_to_markers(cut: RoughCut) -> RoughCut:
+    """The draft holds only what the script says. Off-script speech (funny or meaningful) is NOT placed on the
+    timeline: a marker at its place names it and the source time, the editor decides. Bloopers are not exported."""
+    out: list[Piece] = []
+    index_map: dict[int, int] = {}
+    notes: list[CutMarker] = []
+    for i, p in enumerate(cut.pieces):
+        if p.kind in ("improv_funny", "improv_meaningful"):
+            label = "смешная" if p.kind == "improv_funny" else "осмысленная"
+            notes.append(CutMarker(len(out) - 1, "improv",
+                                   f"импровизация ({label}), {p.source_id} {p.start:.0f} с: «{p.text}»"))
+        else:
+            out.append(p)
+        index_map[i] = len(out) - 1
+    markers = tuple(replace(m, after_piece=index_map.get(m.after_piece, m.after_piece)) if m.after_piece >= 0 else m
+                    for m in cut.markers if m.after_piece != -2)
+    return replace(cut, pieces=tuple(out), markers=markers + tuple(notes), bloopers=())
 
 
 # ---------- boundaries & pauses ----------
@@ -307,6 +392,21 @@ def _silent_runs(env: Envelope, lo: float, hi: float, threshold: float) -> list[
     quiet = np.concatenate(([False], env.db[i:j] < threshold, [False]))
     edges = np.flatnonzero(np.diff(quiet.astype(np.int8)))
     return [((i + a) * env.hop, (i + b) * env.hop) for a, b in zip(edges[0::2], edges[1::2])]
+
+
+def _grow(env: Envelope, run: tuple[float, float], threshold: float, limit: float = 8.0) -> tuple[float, float]:
+    """The silent run was cut off at the search window; extend it to where the silence really ends.
+
+    ASR stretches a word over the silence before it (a 'что' lasting 2.9 s): the window ends inside a long pause and
+    the cut would land seconds before the sound."""
+    n = len(env.db)
+    a, b = int(round(run[0] / env.hop)), int(round(run[1] / env.hop))
+    lim = int(limit / env.hop)
+    while a > 0 and env.db[a - 1] < threshold and int(round(run[0] / env.hop)) - a < lim:
+        a -= 1
+    while b < n and env.db[b] < threshold and b - int(round(run[1] / env.hop)) < lim:
+        b += 1
+    return min(run[0], a * env.hop), max(run[1], b * env.hop)
 
 
 def _choose(near: list[tuple[float, float]], far: list[tuple[float, float]], t: float, edge: int,
@@ -391,6 +491,7 @@ def refine(piece: Piece, src: SourceText, env: Envelope, s: CutSettings,
     far = _silent_runs(env, max(0.0, piece.start - EXTEND), lo, thr)
     run = _choose(near, far, piece.start, edge=1, far_key=lambda r: -r[1])
     if run:
+        run = _grow(env, run, thr)
         start = _cut_in_run(run[0], run[1], run[1], s.handle, 1, frame)
     else:
         start = env.quietest(lo, fwd + env.hop) if fwd - lo >= env.hop else piece.start
@@ -402,6 +503,7 @@ def refine(piece: Piece, src: SourceText, env: Envelope, s: CutSettings,
     far = _silent_runs(env, max(hi, back), min(piece.end + EXTEND, env.duration), thr)
     run = _choose(near, far, piece.end, edge=0, far_key=lambda r: r[0])
     if run:
+        run = _grow(env, run, thr)
         end = _cut_in_run(run[0], run[1], run[0], s.handle, -1, frame)
         if seq_frame:
             end = _fit_end(start, end, seq_frame, run)

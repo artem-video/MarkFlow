@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from markflow.domain.align import Alignment, SourceText, align, script_units
 from markflow.domain.commands import OffScriptRules
-from markflow.domain.cut import CutSettings, RoughCut, build_flow, finish
+from markflow.domain.cut import CutSettings, RoughCut, build_flow, finish, improv_to_markers
 from markflow.domain.edit_plan import EditPlan, Sequence
 from markflow.domain.loudness import Envelope, silence_threshold
 from markflow.domain.metrics import DraftMetrics, measure
@@ -57,8 +57,8 @@ def build_draft(script: Script, inputs: list[SourceInput], profile: Profile, seq
     frames = {m.id: 1 / float(parse_fps(m.fps)) for m in ordered if m.fps}
     seq_frame = 1 / float(parse_fps(sequence.fps))
     thresholds = {sid: silence_threshold(env.db, settings.silence_db) for sid, env in envelopes.items()}
-    rough = finish(build_flow(alignment, sources, rules, settings, written), sources, envelopes, settings, frames,
-                   seq_frame, thresholds)
+    rough = improv_to_markers(finish(build_flow(alignment, sources, rules, settings, written), sources, envelopes,
+                                     settings, frames, seq_frame, thresholds))
     source_map = classify_sources(ordered, alignment)
     plan = assemble(script, rough, ordered, source_map, profile, sequence, episode)
     metrics = measure(plan, alignment, rough, envelopes, profile.cut.silence_db, thresholds)

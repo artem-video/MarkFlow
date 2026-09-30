@@ -8,9 +8,10 @@ in the flow is coloured; bloopers go after the end with a gap.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from fractions import Fraction
 
+from markflow.domain.align import word_sim
 from markflow.domain.cut import Piece, RoughCut
 from markflow.domain.edit_plan import (
     Clip, ClipReason, EditPlan, LabelColor, Marker, MarkerKind, Sequence, Source, SourceKind, Stage, TextLayer,
@@ -70,6 +71,18 @@ class _Builder:
         src_total = seconds_to_ticks(meta.duration)
         if src_in + duration > src_total:
             duration = max(self.frame, ((src_total - src_in) // self.frame) * self.frame)
+        if last is not None and last.source_id == piece.source_id and last.end == self.cursor \
+                and last.source_out == src_in and last.reason == reason and last.color == color:
+            # the same recording continues without a gap: one clip, no through-edit bar in Premiere
+            refs = [x for x in (last.script_ref or "").split(",") if x] \
+                + [x for x in (",".join(piece.unit_ids) or piece.block_id or "").split(",") if x]
+            self.clips[-1] = last.model_copy(update={
+                "source_out": last.source_out + duration,
+                "script_ref": ",".join(dict.fromkeys(refs)),
+                "note": (last.note + " " + piece.text)[:200]})
+            start = self.cursor
+            self.cursor += duration
+            return start
         clip = Clip(
             id=f"c{len(self.clips) + 1:04d}", source_id=piece.source_id, source_in=src_in,
             source_out=src_in + duration, start=self.cursor,
@@ -87,6 +100,35 @@ class _Builder:
                                      video_track=self.profile.tracks.video.text_layers, text=text,
                                      script_ref=block.id))
         self.cursor += duration
+
+
+def _anchor_span(pieces: list[tuple[int, Piece]], piece_start: dict[int, int], piece_dur: dict[int, int],
+                 anchor: str) -> tuple[int, int] | None:
+    """(start, length) in ticks of the phrase a comment is attached to, following how it is pronounced.
+
+    The anchor is the script's wording, the pieces hold the spoken words: match the first words loosely, then
+    follow the phrase word by word; inside a clip a word sits at its share of the clip's length."""
+    target = normalize(anchor).split()
+    if not target:
+        return None
+    flat: list[tuple[int, int, int]] = []  # (piece, index in piece, words in piece)
+    words: list[str] = []
+    for i, p in pieces:
+        if i not in piece_start:
+            continue
+        w = normalize(p.text).split()
+        flat += [(i, k, len(w)) for k in range(len(w))]
+        words += w
+    head = target[:3]
+    for s in range(len(words) - len(head) + 1):
+        if all(word_sim(a, b) >= 0.8 for a, b in zip(words[s:s + len(head)], head)):
+            e = min(len(words) - 1, s + len(target) - 1)
+            pi, k, n = flat[s]
+            pj, k2, n2 = flat[e]
+            t0 = piece_start[pi] + piece_dur[pi] * k // n
+            t1 = piece_start[pj] + piece_dur[pj] * (k2 + 1) // n2
+            return t0, max(0, t1 - t0)
+    return None
 
 
 def _live_text(block: ScriptBlock) -> str:
@@ -121,6 +163,7 @@ def assemble(script: Script, cut: RoughCut, metas: list[SourceMeta], source_map:
     for m in cut.markers:
         cut_markers.setdefault(m.after_piece, []).append(m)
     piece_start: dict[int, int] = {}
+    piece_dur: dict[int, int] = {}
     comments = {c.id: c for c in script.comments}
 
     for block in script.blocks:
@@ -143,11 +186,13 @@ def assemble(script: Script, cut: RoughCut, metas: list[SourceMeta], source_map:
                     kind = ClipReason.VOICEOVER if block.kind == BlockKind.VOICEOVER else ClipReason.SCRIPT
                     piece_start[i] = b.add_piece(p, kind, profile.colors.voiceover if kind == ClipReason.VOICEOVER
                                                  else None)
+                    piece_dur[i] = b.cursor - piece_start[i]
                     for check in dict.fromkeys(p.checks):
                         b.marker(MarkerKind.CHECK, f"{profile.markers.check_name}: {check}", p.text[:300],
                                  ",".join(p.unit_ids), at=piece_start[i])
                 for m in cut_markers.pop(i, []):
-                    kind = MarkerKind.COMMAND if m.kind == "command" else MarkerKind.CHECK
+                    kind = MarkerKind.COMMAND if m.kind == "command" else \
+                        MarkerKind.INFO if m.kind == "improv" else MarkerKind.CHECK
                     b.marker(kind, m.text[:120], m.text, block.id)
         elif block.kind in (BlockKind.LIVE, BlockKind.QUOTE, BlockKind.BUTT):
             text = _live_text(block)
@@ -165,23 +210,28 @@ def assemble(script: Script, cut: RoughCut, metas: list[SourceMeta], source_map:
             c = comments[cid]
             if c.resolved:
                 continue
-            at = block_start
+            at, length = block_start, 0
             if c.anchor_text and block.spoken:
-                needle = normalize(c.anchor_text)[:40]
-                for i, p in by_block.get(block.id, []):
-                    if needle and needle in normalize(p.text) and i in piece_start:
-                        at = piece_start[i]
-                        break
+                span = _anchor_span(by_block.get(block.id, []), piece_start, piece_dur, c.anchor_text)
+                if span:
+                    at, length = span
+                else:
+                    needle = normalize(c.anchor_text)[:40]
+                    for i, p in by_block.get(block.id, []):
+                        if needle and needle in normalize(p.text) and i in piece_start:
+                            at = piece_start[i]
+                            break
             body = c.text + ("".join(f"\n↳ {r}" for r in c.replies)) + (f"\n[к тексту: {c.anchor_text}]"
                                                                          if c.anchor_text else "")
-            b.marker(MarkerKind.SCRIPT_COMMENT, f"{c.author}: {c.text}"[:120], body, block.id, at=at)
+            b.marker(MarkerKind.SCRIPT_COMMENT, f"{c.author}: {c.text}"[:120], body, block.id, at=at, duration=length)
 
     for m in cut_markers.pop(-1, []):
         b.marker(MarkerKind.CHECK, m.text[:120], m.text, at=0)
     for m in [m for ms in cut_markers.values() for m in ms if m.after_piece >= 0]:
-        b.marker(MarkerKind.CHECK if m.kind == "check" else MarkerKind.COMMAND, m.text[:120], m.text)
+        b.marker(MarkerKind.CHECK if m.kind == "check" else MarkerKind.INFO if m.kind == "improv"
+                 else MarkerKind.COMMAND, m.text[:120], m.text)
 
-    if cut.bloopers or cut_markers.get(-2):
+    if False and (cut.bloopers or cut_markers.get(-2)):  # bloopers are not exported to the timeline
         b.cursor += b.frames(BLOOPERS_GAP_S)
         b.marker(MarkerKind.INFO, "БЛУПЕРСЫ: импровизация вне дублей", "всё, что сказано не по сценарию и не вошло")
         for m in cut_markers.get(-2, []):
