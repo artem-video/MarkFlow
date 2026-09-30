@@ -43,10 +43,12 @@ def test_no_secrets_tracked():
 
 def test_media_only_in_fixtures():
     fixtures = ROOT / "tests" / "fixtures"
+    templates = ROOT / "templates"  # small empty base projects saved by Premiere (PLAN 0.3), not media
     stray = [
         str(p.relative_to(ROOT))
         for p in tracked_files()
         if any(fnmatch.fnmatch(p.name.lower(), pat) for pat in MEDIA_PATTERNS)
         and fixtures not in p.parents
+        and not (templates in p.parents and p.suffix.lower() == ".prproj")
     ]
     assert stray == []

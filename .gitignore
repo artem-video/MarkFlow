@@ -25,6 +25,7 @@ token*.json
 !tests/fixtures/**/*.wav
 *.prproj
 !tests/fixtures/**/*.prproj
+!templates/**/*.prproj
 *.prlock
 Adobe Premiere Pro Auto-Save/
 Adobe Premiere Pro Audio Previews/
