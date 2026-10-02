@@ -1,9 +1,8 @@
-"""Script comments -> timeline (PLAN 5.1). Pure: comment text in, a decision out.
+"""Script comments -> timeline (PLAN 5.1). Pure: comment text in, subtitles out.
 
-A comment is an instruction to the editor. Ordinary ones ('показать', 'выделить', 'файл 9012') become a ranged
-marker at the phrase they are attached to. Non-standard ones (a title, a footnote, an effect, a sound, a layout
-wish) are easy to miss in a marker, so they are also shown as a subtitle on a track of their own.
-Links and timecodes are the lives' business (PLAN 4); they never reach the subtitle text.
+A comment is an instruction to the editor and goes on the timeline as a subtitle on a track of its own, word for
+word as in the script ('ВИДЕО: <ссылка>' / '47:48 Можно ускорить'): the editor reads it, nothing is paraphrased.
+A comment addressed to a colleague ('@name@mail.com Лех, тут лайв нужен') is not about the edit and is ignored.
 """
 
 from __future__ import annotations
@@ -11,52 +10,23 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, replace
 
-from markflow.shared.text_norm import normalize, without_links
-from markflow.shared.timecode import TICKS_PER_SECOND, find_clocks, format_clock
+from markflow.shared.timecode import TICKS_PER_SECOND
 
-SUBTITLE_MAX_CHARS = 140
 SUBTITLE_DEFAULT_S = 4.0
 SUBTITLE_MIN_S = 2.0
 SUBTITLE_MAX_S = 6.0
 
-# stems of the normalised text: something the editor must build, not just find and place
-_NONSTANDARD = re.compile(
-    r"\b(титр\w*|сноск\w*|плашк\w*|эффект\w*|фишай\w*|растян\w*|растяг\w*|зум\w*|увелич\w*|замедл\w*|шрифт\w*|"
-    r"анимаци\w*|размыт\w*|звук\w*|музык\w*|смех\w*|мемн\w*|смешн\w*|комичн\w*|шутк\w*|сбоку)\b")
+_ADDRESSED = re.compile(r"@[\w.+-]+@[\w-]+\.\w+|(?<![\w/])@\w{3,}")  # an e-mail or a @mention
 
 
-_URL_END = re.compile(r"(https?://[^\s\u0400-\u04ff]+)")
-
-
-def instruction_text(text: str) -> str:
-    """The comment without links and timecodes, on one line."""
-    text = without_links(_URL_END.sub(r"\1 ", text))  # Docs glues the text to the end of a link
-    for a, b, _ in reversed(find_clocks(text)):
-        text = text[:a] + " " + text[b:]
-    return re.sub(r"\s+", " ", text).strip(" :;,.-—")
-
-
-def is_nonstandard(text: str) -> bool:
-    return bool(_NONSTANDARD.search(normalize(instruction_text(text))))
-
-
-def _clock_note(text: str) -> str:
-    clocks = [format_clock(c) for _, _, c in find_clocks(without_links(_URL_END.sub(r" ", text)))]
-    return f" ({'–'.join(clocks[:2])})" if clocks else ""
-
-
-def _host(text: str) -> str:
-    m = _URL_END.search(text)
-    return re.sub(r"^https?://(www\.)?", "", m.group(1)).split("/")[0] if m else ""
+def is_for_editor(text: str) -> bool:
+    """False for comments that talk to a colleague instead of the edit."""
+    return bool(text.strip()) and not _ADDRESSED.search(text)
 
 
 def subtitle_text(text: str) -> str:
-    """One readable line: the instruction itself (a link alone becomes 'ссылка: site'), cut at a word boundary."""
-    line = instruction_text(text) or (f"ссылка: {_host(text)}" if _host(text) else "")
-    line = (line + _clock_note(text)).strip()
-    if len(line) <= SUBTITLE_MAX_CHARS:
-        return line
-    return line[:SUBTITLE_MAX_CHARS].rsplit(" ", 1)[0].rstrip(" ,;:—-") + "…"
+    """The comment as written, lines kept, blank lines and edge spaces dropped."""
+    return "\n".join(line.strip() for line in text.replace("\r", "").split("\n") if line.strip())
 
 
 @dataclass(frozen=True)

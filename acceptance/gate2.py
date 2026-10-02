@@ -160,6 +160,8 @@ def run(ep_path: Path) -> int:
     written = write_plan(ep.base_project, result.plan, out, ep.sequence)
     out.with_suffix(".edit_plan.json").write_text(to_json(result.plan), encoding="utf-8")
     write_srt(result.plan, out.with_suffix(".subtitles.srt"))
+    out.with_suffix(".improv.log.txt").write_text(
+        chr(10).join(m.text for m in result.cut.markers if m.kind == "improv") + chr(10), encoding="utf-8")
     log(f"written: {out}")
 
     reloaded = Project.load(out)

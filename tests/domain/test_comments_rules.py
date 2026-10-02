@@ -1,40 +1,25 @@
-from markflow.domain.comments_rules import (
-    Cue, cue_duration, instruction_text, is_nonstandard, place_cues, subtitle_text,
-)
+from markflow.domain.comments_rules import Cue, cue_duration, is_for_editor, place_cues, subtitle_text
 from markflow.shared.timecode import TICKS_PER_SECOND as S
 
 FRAME = 8475667200  # 30000/1001
 
 
-def test_links_and_timecodes_are_not_instruction_text():
-    raw = "https://www.youtube.com/watch?v=xKo8uHegb5k&t=24sПоказать видео на ускоренке 1:31-1:38"
-    assert instruction_text(raw) == "Показать видео на ускоренке"
+def test_subtitle_is_the_comment_word_for_word():
+    raw = "ВИДЕО: https://vkvideo.ru/video-211437014_456248467\n47:48 Можно ускорить"
+    assert subtitle_text(raw) == raw
+    assert subtitle_text("  Файл 9012 \r\n\r\n") == "Файл 9012"
 
 
-def test_ordinary_instructions_stay_markers():
-    for text in ("Файл 9012", "Показать Максимович", "Убираем строчку", "ВЫДЕЛИТЬ: участие в деятельности",
-                 "https://youtu.be/d4li3Bk95Co 1:31-1:38 ВАЖНО! дать крупные планы с ней", "Кроп на слезах"):
-        assert not is_nonstandard(text), text
+def test_comments_to_a_colleague_are_ignored():
+    assert not is_for_editor("@alekseii.korostelev@gmail.com Лех, тут лайв нужен")
+    assert not is_for_editor("@alekseii.korostelev@gmail.com поставишь плиз нужный лайв")
+    assert not is_for_editor("   ")
 
 
-def test_non_standard_instructions_become_subtitles():
-    for text in ("Дать титр Инкумбент — действующий обладатель должности",
-                 "Дать сноску (договориться с Андреем как они будут выглядеть)",
-                 "Файл 8981 можно растянуть текст в ширину для комичности",
-                 "тут можно увеличить на рот и на жирного эффект фишай",
-                 "Можно сбоку от ведущего вывести со звуком мемным"):
-        assert is_nonstandard(text), text
-
-
-def test_a_link_alone_is_not_an_instruction():
-    assert not is_nonstandard("https://t.me/bazabazon/22578")
-    assert instruction_text("https://t.me/bazabazon/22578") == ""
-
-
-def test_subtitle_text_is_one_short_line():
-    long = "Дать титр " + "очень длинное определение " * 20
-    out = subtitle_text(long + "\nhttps://x.ru/a")
-    assert "\n" not in out and "http" not in out and len(out) <= 141 and out.endswith("…")
+def test_editing_comments_are_kept():
+    for text in ("Файл 9012", "https://t.me/bazabazon/22578", "Дать титр Инкумбент — должность", "Кроп на слезах",
+                 "ссылка: https://youtu.be/d4li3Bk95Co 1:31-1:38 ВАЖНО! дать крупные планы с ней"):
+        assert is_for_editor(text), text
 
 
 def test_duration_follows_the_phrase_but_stays_readable():

@@ -17,7 +17,7 @@ from markflow.domain.edit_plan import (
     Clip, ClipReason, EditPlan, LabelColor, Marker, MarkerKind, Sequence, Source, SourceKind, Stage, Subtitle,
     TextLayer,
 )
-from markflow.domain.comments_rules import Cue, cue_duration, place_cues, subtitle_text
+from markflow.domain.comments_rules import Cue, cue_duration, is_for_editor, place_cues, subtitle_text
 from markflow.domain.profile import Profile
 from markflow.domain.script_model import CHECK_RU, BlockKind, Script, ScriptBlock
 from markflow.domain.triage_rules import SourceMap, SourceMeta
@@ -240,8 +240,9 @@ def assemble(script: Script, cut: RoughCut, metas: list[SourceMeta], source_map:
                         b.marker(MarkerKind.CHECK, f"{profile.markers.check_name}: {check}", p.text[:300],
                                  ",".join(p.unit_ids), at=piece_start[i])
                 for m in cut_markers.pop(i, []):
-                    kind = MarkerKind.COMMAND if m.kind == "command" else \
-                        MarkerKind.INFO if m.kind == "improv" else MarkerKind.CHECK
+                    if m.kind == "improv":  # off-script speech is only logged, not written on the timeline
+                        continue
+                    kind = MarkerKind.COMMAND if m.kind == "command" else MarkerKind.CHECK
                     b.marker(kind, m.text[:120], m.text, block.id)
         elif block.kind in (BlockKind.LIVE, BlockKind.QUOTE, BlockKind.BUTT):
             text = _live_text(block)
@@ -264,7 +265,7 @@ def assemble(script: Script, cut: RoughCut, metas: list[SourceMeta], source_map:
         # script comments at the fragment they are attached to
         for cid in block.comment_ids:
             c = comments[cid]
-            if c.resolved:
+            if c.resolved or not is_for_editor(c.text):
                 continue
             at, length = block_start, 0
             if c.anchor_text and block.spoken:
@@ -282,11 +283,10 @@ def assemble(script: Script, cut: RoughCut, metas: list[SourceMeta], source_map:
             # comments are subtitles on a track of their own: markers are kept for problems (they load the project)
             b.cues.append(Cue(at, cue_duration(length, b.frame), subtitle_text(c.text), body, block.id))
 
-    for m in cut_markers.pop(-1, []):
+    for m in [m for m in cut_markers.pop(-1, []) if m.kind != "improv"]:
         b.marker(MarkerKind.CHECK, m.text[:120], m.text, at=0)
-    for m in [m for ms in cut_markers.values() for m in ms if m.after_piece >= 0]:
-        b.marker(MarkerKind.CHECK if m.kind == "check" else MarkerKind.INFO if m.kind == "improv"
-                 else MarkerKind.COMMAND, m.text[:120], m.text)
+    for m in [m for ms in cut_markers.values() for m in ms if m.after_piece >= 0 and m.kind != "improv"]:
+        b.marker(MarkerKind.CHECK if m.kind == "check" else MarkerKind.COMMAND, m.text[:120], m.text)
 
     if False and (cut.bloopers or cut_markers.get(-2)):  # bloopers are not exported to the timeline
         b.cursor += b.frames(BLOOPERS_GAP_S)
