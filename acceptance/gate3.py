@@ -45,7 +45,7 @@ def compare(plan: EditPlan, info: SequenceInfo) -> list[str]:
         problems.append(f"timeline is SHORT: {format_clock(ticks_to_seconds(info.duration))} in Premiere, "
                         f"plan {format_clock(ticks_to_seconds(plan_end))}")
     covered = {(m.script_ref, m.start) for m in plan.markers if m.kind.value == "live_missing"}  # writer skips twins
-    planned_markers = len(plan.markers) + len(plan.subtitles)         + sum(1 for t in plan.text_layers if (t.script_ref, t.start) not in covered)
+    planned_markers = len(plan.markers)        + sum(1 for t in plan.text_layers if (t.script_ref, t.start) not in covered)
     if len(info.markers) < planned_markers:
         problems.append(f"{len(info.markers)} markers in Premiere, plan has {planned_markers}")
     return problems

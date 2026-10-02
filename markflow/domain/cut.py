@@ -41,6 +41,8 @@ class Piece:
     block_id: str | None = None
     text: str = ""
     checks: tuple[str, ...] = ()
+    hard_start: bool = False      # the words before the start were cut out as a repeat: refine must not take them back
+    hard_end: bool = False        # same for the words after the end
 
     @property
     def duration(self) -> float:
@@ -292,7 +294,11 @@ def _restart_spans(words: list[str]) -> list[tuple[int, int]]:
             while i + 2 * n <= len(idx):
                 a = [words[k] for k in idx[i:i + n]]
                 b = [words[k] for k in idx[i + n:i + 2 * n]]
-                if _same(a, b) and (n >= 2 or len(a[0]) <= 2):
+                gap = next((g for g in (1, 2) if n >= 2 and i + 2 * n + g <= len(idx)
+                            and all(len(words[k]) <= 3 for k in idx[i + n:i + n + g])
+                            and _same(a, [words[k] for k in idx[i + n + g:i + 2 * n + g]])), 0)
+                if (_same(a, b) and (n >= 2 or len(a[0]) <= 2)) or gap:
+                    # 'ли это шутка | то | ли это шутка': the earlier copy goes, the words before the retry stay
                     spans.append((idx[i], idx[i + n - 1] + 1))
                     del idx[i:i + n]
                     changed = True
@@ -334,12 +340,54 @@ def drop_restarts(cut: RoughCut, sources: dict[str, SourceText]) -> RoughCut:
             start = p.start if run[0] == 0 else a_t.start
             end = p.end if run[-1] == len(toks) - 1 else b_t.end
             out.append(replace(p, start=start, end=end, unit_ids=p.unit_ids if r == 0 else (),
+                               hard_start=p.hard_start or run[0] != 0,
+                               hard_end=p.hard_end or run[-1] != len(toks) - 1,
                                text=_text(src, toks[run[0]], toks[run[-1]]), checks=p.checks if r == 0 else ()))
         index_map[i] = len(out) - 1  # a marker "after this piece" goes after its last part
         dropped += sum(src.tokens[toks[j]].end - src.tokens[toks[j]].start for j in gone)
     markers = tuple(replace(m, after_piece=index_map.get(m.after_piece, m.after_piece)) if m.after_piece >= 0 else m
                     for m in cut.markers)
-    return replace(cut, pieces=tuple(out), markers=markers, junk_seconds=round(cut.junk_seconds + dropped, 2))
+    return trim_seams(replace(cut, pieces=tuple(out), markers=markers,
+                              junk_seconds=round(cut.junk_seconds + dropped, 2)), sources)
+
+
+SEAM_MAX_WORDS = 6
+
+
+def trim_seams(cut: RoughCut, sources: dict[str, SourceText]) -> RoughCut:
+    """A piece must not end with the words the next piece begins with ('…и следом куча | и следом куча мемов'):
+    the speaker said them, stumbled and said the phrase again; the earlier words are cut."""
+    pieces = list(cut.pieces)
+    dropped = 0.0
+    for i in range(len(pieces) - 1):
+        a, b = pieces[i], pieces[i + 1]
+        if a.kind == "improv_funny" or b.kind == "improv_funny" or a.source_id not in sources                 or b.source_id not in sources:
+            continue
+        ta = [t for t in sources[a.source_id].tokens if a.start <= (t.start + t.end) / 2 <= a.end]
+        tb = [t for t in sources[b.source_id].tokens if b.start <= (t.start + t.end) / 2 <= b.end]
+        for n in range(min(SEAM_MAX_WORDS, len(ta) - 2, len(tb)), 1, -1):
+            if _same([t.word for t in ta[-n:]], [t.word for t in tb[:n]]):
+                end = ta[-n - 1].end
+                dropped += a.end - end
+                pieces[i] = replace(a, end=end, hard_end=True, text=" ".join(t.raw for t in ta[:-n]))
+                break
+    return replace(cut, pieces=tuple(pieces), junk_seconds=round(cut.junk_seconds + dropped, 2))
+
+
+def repeat_report(cut: RoughCut, sources: dict[str, SourceText]) -> list[str]:
+    """Final check of the cut: a phrase said twice inside a piece or across a seam (what a listener hears as a stumble)."""
+    out: list[str] = []
+    words: list[list[str]] = []
+    for p in cut.pieces:
+        src = sources.get(p.source_id)
+        w = [t.word for t in src.tokens if p.start <= (t.start + t.end) / 2 <= p.end] if src else []
+        words.append(w)
+        if _restart_spans(w):
+            out.append(f"повтор внутри куска {p.source_id} {p.start:.1f}с: «{' '.join(w[:8])}…»")
+    for p, a, b in zip(cut.pieces[1:], words, words[1:]):
+        if len(a) >= 3 and len(b) >= 2 and _same(a[-2:], b[:2]):
+            out.append(f"повтор на стыке {p.source_id} {p.start:.1f}с: «…{' '.join(a[-3:])} | {' '.join(b[:3])}…»")
+    return out
 
 
 def improv_to_markers(cut: RoughCut) -> RoughCut:
@@ -366,6 +414,7 @@ def improv_to_markers(cut: RoughCut) -> RoughCut:
 EDGE_MARGIN = 0.035   # s of silence kept on both sides of a (frame-snapped) cut: metric window + half a sequence frame
 CLEAN_RUN = 2 * EDGE_MARGIN + 0.02  # s: a silent run long enough to hold a frame-snapped cut with margins
 FORWARD_LOOK = 0.6
+HARD_LOOK = 0.15     # s: how far a cut next to cut-out words may move
 EXTEND = 1.2          # s: how far a boundary may grow over neighbouring words to reach a pause    # s: ASR puts a word start early after a pause — look this far into the first word
 
 
@@ -484,11 +533,15 @@ def refine(piece: Piece, src: SourceText, env: Envelope, s: CutSettings,
     search = max(s.search, 0.5)
 
     lo = max(prev_start + 0.05, piece.start - search, 0.0)
+    if piece.hard_start:
+        lo = max(lo, piece.start - HARD_LOOK)
     fwd = max(piece.start, min(first_end - 0.05, piece.start + FORWARD_LOOK, piece.end - s.min_piece))
     near = _silent_runs(env, lo, fwd + env.hop, thr)
     # no clean pause next to the ASR edge (speech runs on): take in the neighbouring word(s) up to the nearest
     # pause rather than cut a live word — a word too many is safer than a cut through sound
-    far = _silent_runs(env, max(0.0, piece.start - EXTEND), lo, thr)
+    if piece.hard_start:  # never back into the repeated words that were cut out
+        near = [r for r in near if r[1] >= piece.start - HARD_LOOK]
+    far = [] if piece.hard_start else _silent_runs(env, max(0.0, piece.start - EXTEND), lo, thr)
     run = _choose(near, far, piece.start, edge=1, far_key=lambda r: -r[1])
     if run:
         run = _grow(env, run, thr)
@@ -499,8 +552,10 @@ def refine(piece: Piece, src: SourceText, env: Envelope, s: CutSettings,
 
     back = min(piece.end, max(last_start + 0.05, piece.end - FORWARD_LOOK, start + s.min_piece))
     hi = min(next_end - 0.05, piece.end + search, env.duration)
+    if piece.hard_end:  # never on into the repeated words that were cut out
+        hi = min(hi, piece.end + HARD_LOOK)
     near = _silent_runs(env, back, hi, thr) if hi > back else []
-    far = _silent_runs(env, max(hi, back), min(piece.end + EXTEND, env.duration), thr)
+    far = [] if piece.hard_end else _silent_runs(env, max(hi, back), min(piece.end + EXTEND, env.duration), thr)
     run = _choose(near, far, piece.end, edge=0, far_key=lambda r: r[0])
     if run:
         run = _grow(env, run, thr)
@@ -510,7 +565,17 @@ def refine(piece: Piece, src: SourceText, env: Envelope, s: CutSettings,
     else:
         end = env.quietest(back, hi) if hi - back >= env.hop else piece.end
         warnings.append(f"{piece.source_id} {piece.end:.2f}s: конец реза не в тишине")
+    if not piece.hard_start and start < piece.start - 1e-3 and _head_repeats(src, start, piece):
+        return refine(replace(piece, hard_start=True), src, env, s, frame, seq_frame)  # do not take the repeat back
     return replace(piece, start=round(start, 6), end=round(max(end, start + s.min_piece), 6)), warnings
+
+
+def _head_repeats(src: SourceText, new_start: float, piece: Piece) -> bool:
+    """The words a start was pulled back over say again what the piece itself begins with (a restart)."""
+    added = [t.word for t in src.tokens if new_start - 0.02 <= t.start and t.end <= piece.start + 0.05]
+    head = [t.word for t in src.tokens if piece.start - 0.05 <= t.start and t.end <= piece.end][:8]
+    pairs = list(zip(head, head[1:]))
+    return any(_same(list(x), list(y)) for x in zip(added, added[1:]) for y in pairs)
 
 
 def shorten_pauses(piece: Piece, env: Envelope, s: CutSettings, frame: float | None = None) -> list[Piece]:

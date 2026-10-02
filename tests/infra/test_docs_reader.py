@@ -50,7 +50,7 @@ def test_first_live_is_complete(script):
 
 def _all_text(block) -> str:
     parts = [block.header, *block.lines, *block.notes, *block.links, *(c.words for c in block.clocks)]
-    return normalize(" ".join(parts))
+    return " ".join(parts)
 
 
 def _script_lines(raw: RawDoc) -> list[str]:
@@ -61,8 +61,7 @@ def _script_lines(raw: RawDoc) -> list[str]:
 
 
 def _no_digits(text: str) -> str:
-    text = re.sub(r"(\d)(?=[^\d\s])|(?<=[^\d\s])(?=\d)", r"\1 ", normalize(text))  # '13:42обороты'
-    return " ".join(w for w in text.split() if not w.isdigit())
+    return normalize(re.sub(r"\d+", " ", text))  # digits are compared elsewhere (Clock.start/end)
 
 
 def test_nothing_is_lost(raw, script):

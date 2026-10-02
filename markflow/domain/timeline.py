@@ -17,7 +17,7 @@ from markflow.domain.edit_plan import (
     Clip, ClipReason, EditPlan, LabelColor, Marker, MarkerKind, Sequence, Source, SourceKind, Stage, Subtitle,
     TextLayer,
 )
-from markflow.domain.comments_rules import Cue, cue_duration, is_nonstandard, place_cues, subtitle_text
+from markflow.domain.comments_rules import Cue, cue_duration, place_cues, subtitle_text
 from markflow.domain.profile import Profile
 from markflow.domain.script_model import CHECK_RU, BlockKind, Script, ScriptBlock
 from markflow.domain.triage_rules import SourceMap, SourceMeta
@@ -279,10 +279,8 @@ def assemble(script: Script, cut: RoughCut, metas: list[SourceMeta], source_map:
                             break
             body = c.text + ("".join(f"\n↳ {r}" for r in c.replies)) + (f"\n[к тексту: {c.anchor_text}]"
                                                                          if c.anchor_text else "")
-            if is_nonstandard(c.text):  # shown as a subtitle on its own track instead of a marker
-                b.cues.append(Cue(at, cue_duration(length, b.frame), subtitle_text(c.text), body, block.id))
-            else:
-                b.marker(MarkerKind.SCRIPT_COMMENT, c.text[:120], body, block.id, at=at, duration=length)  # no author
+            # comments are subtitles on a track of their own: markers are kept for problems (they load the project)
+            b.cues.append(Cue(at, cue_duration(length, b.frame), subtitle_text(c.text), body, block.id))
 
     for m in cut_markers.pop(-1, []):
         b.marker(MarkerKind.CHECK, m.text[:120], m.text, at=0)

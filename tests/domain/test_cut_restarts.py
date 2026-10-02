@@ -45,3 +45,32 @@ def test_improvisation_becomes_a_marker_and_bloopers_are_not_exported():
     notes = [m for m in cut.markers if m.kind == "improv"]
     assert len(notes) == 1 and notes[0].after_piece == 0 and "смешная" in notes[0].text
     assert not [m for m in cut.markers if m.after_piece == -2]
+
+
+def test_retry_after_a_short_filler_drops_the_earlier_copy():
+    words = "ли это шутка то ли то ли это шутка то ли подмигивание".split()
+    spans = _restart_spans(words)
+    gone = {k for a, b in spans for k in range(a, b)}
+    kept = " ".join(w for k, w in enumerate(words) if k not in gone)
+    assert kept == "то ли это шутка то ли подмигивание"
+
+
+def test_a_piece_does_not_end_with_the_words_the_next_one_begins_with():
+    from markflow.domain.cut import trim_seams
+
+    words = "был пост и следом куча и следом куча мемов про него".split()
+    src = _src(words)
+    a = Piece("s", 0.0, src.tokens[4].end, "script", ("B1.1",), "B1", "был пост и следом куча", ())
+    b = Piece("s", src.tokens[5].start, src.tokens[-1].end, "script", ("B1.2",), "B1", "и следом куча мемов про него", ())
+    out = trim_seams(RoughCut((a, b)), {"s": src})
+    assert out.pieces[0].text == "был пост" and out.pieces[0].end == src.tokens[1].end
+    assert out.pieces[1] == b and out.junk_seconds > 0
+
+
+def test_distinct_neighbours_are_left_alone():
+    from markflow.domain.cut import trim_seams
+
+    src = _src("один два три четыре пять шесть".split())
+    a = Piece("s", 0.0, src.tokens[2].end, "script", (), "B1", "один два три", ())
+    b = Piece("s", src.tokens[3].start, src.tokens[-1].end, "script", (), "B1", "четыре пять шесть", ())
+    assert trim_seams(RoughCut((a, b)), {"s": src}).pieces == (a, b)

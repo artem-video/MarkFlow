@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 import unicodedata
 
+from markflow.shared.numbers_ru import spell_numbers
+
 _MD_LINK = re.compile(r"\[([^\]]*)\]\(([^)]*)\)")
 _MD_AUTOLINK = re.compile(r"<(https?://[^>\s]+)>")
 _MD_ESCAPE = re.compile(r"\\([!-/:-@\[-`{-~])")
@@ -57,6 +59,7 @@ def without_links(text: str) -> str:
 def normalize(text: str) -> str:
     """Lower case, ё->е, no punctuation, single spaces. For matching only, never for display."""
     text = unicodedata.normalize("NFKC", strip_markdown(text)).lower().replace("ё", "е")
+    text = spell_numbers(text)
     text = _NON_WORD.sub(" ", text).replace("_", " ")
     return _SPACES.sub(" ", text).strip()
 

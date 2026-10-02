@@ -414,9 +414,6 @@ class _Writer:
             if (t.script_ref, t.start) in covered:  # the red live-missing marker already says it
                 continue
             self._marker(t.start, t.text.split("\n")[0][:120], _layer_comment(t))
-        # no caption track in the template yet: a subtitle is a ranged marker
-        for u in sorted(self.plan.subtitles, key=lambda u: u.start):
-            self._marker(u.start, f"СУБТИТР: {u.text}"[:120], u.note or u.text, u.duration)
 
 
 def _marker_name(m: Marker) -> str:

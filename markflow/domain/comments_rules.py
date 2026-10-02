@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass, replace
 
 from markflow.shared.text_norm import normalize, without_links
-from markflow.shared.timecode import TICKS_PER_SECOND, find_clocks
+from markflow.shared.timecode import TICKS_PER_SECOND, find_clocks, format_clock
 
 SUBTITLE_MAX_CHARS = 140
 SUBTITLE_DEFAULT_S = 4.0
@@ -40,9 +40,20 @@ def is_nonstandard(text: str) -> bool:
     return bool(_NONSTANDARD.search(normalize(instruction_text(text))))
 
 
+def _clock_note(text: str) -> str:
+    clocks = [format_clock(c) for _, _, c in find_clocks(without_links(_URL_END.sub(r" ", text)))]
+    return f" ({'–'.join(clocks[:2])})" if clocks else ""
+
+
+def _host(text: str) -> str:
+    m = _URL_END.search(text)
+    return re.sub(r"^https?://(www\.)?", "", m.group(1)).split("/")[0] if m else ""
+
+
 def subtitle_text(text: str) -> str:
-    """One readable line: the instruction itself, cut at a word boundary."""
-    line = instruction_text(text)
+    """One readable line: the instruction itself (a link alone becomes 'ссылка: site'), cut at a word boundary."""
+    line = instruction_text(text) or (f"ссылка: {_host(text)}" if _host(text) else "")
+    line = (line + _clock_note(text)).strip()
     if len(line) <= SUBTITLE_MAX_CHARS:
         return line
     return line[:SUBTITLE_MAX_CHARS].rsplit(" ", 1)[0].rstrip(" ,;:—-") + "…"

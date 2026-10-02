@@ -30,6 +30,7 @@ from markflow.infra.media.ffmpeg import FfmpegAudio
 from markflow.infra.prproj.project import Project
 from markflow.infra.prproj.validator import plan_problems, structure_problems, untouched_problems
 from markflow.infra.prproj.writer import write_plan
+from markflow.infra.subtitles import write_srt
 from markflow.profiles.loader import load_profile
 from markflow.shared.links import live_key
 from markflow.shared.timecode import format_clock, fps_from_frame_ticks, ticks_to_seconds
@@ -151,12 +152,14 @@ def run(ep_path: Path) -> int:
         f"{len(result.plan.subtitles)} subtitles, "
         f"{format_clock(result.metrics.duration_s)}")
 
+    problems += result.repeats[:20]
     problems += live_problems(script, lives, result.plan)
 
     ep.out_folder.mkdir(parents=True, exist_ok=True)
     out = new_output_path(ep.base_project, folder=ep.out_folder)
     written = write_plan(ep.base_project, result.plan, out, ep.sequence)
     out.with_suffix(".edit_plan.json").write_text(to_json(result.plan), encoding="utf-8")
+    write_srt(result.plan, out.with_suffix(".subtitles.srt"))
     log(f"written: {out}")
 
     reloaded = Project.load(out)

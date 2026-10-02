@@ -100,9 +100,9 @@ def test_improvisation_is_not_placed_on_the_timeline(result):
 
 def test_markers(result):
     kinds = [m.kind for m in result.plan.markers]
-    assert MarkerKind.SCRIPT_COMMENT in kinds and MarkerKind.LIVE_MISSING in kinds
-    comment = next(m for m in result.plan.markers if m.kind == MarkerKind.SCRIPT_COMMENT)
-    assert comment.name.startswith("дать кадры") and "Макашенец" not in comment.name  # authors are not shown
+    assert MarkerKind.LIVE_MISSING in kinds and MarkerKind.SCRIPT_COMMENT not in kinds  # comments are subtitles
+    comment = next(u for u in result.plan.subtitles if u.text.lower().startswith("дать кадры"))
+    assert "Макашенец" not in comment.text + comment.note  # authors are not shown
     assert any(m.kind == MarkerKind.INFO and "крупный план" in m.name for m in result.plan.markers)
     assert any(m.kind == MarkerKind.CHECK and "лайв без ссылки" in m.name for m in result.plan.markers)
 
